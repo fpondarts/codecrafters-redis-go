@@ -5,15 +5,14 @@ import (
 	"log"
 	"net"
 	"os"
-	"strings"
 	"sync"
 
-	"github.com/codecrafters-io/redis-starter-go/internal/resp"
+	"github.com/codecrafters-io/redis-starter-go/internal/redis"
 )
 
 type Event struct {
 	Conn    net.Conn
-	Payload resp.RESPElement
+	Command redis.Command
 	Result  chan error
 }
 
@@ -23,6 +22,8 @@ type TCPServer struct {
 	ClientsMtx sync.Mutex
 	EventQueue chan Event
 }
+
+var Memory = map[string]string{}
 
 func (server *TCPServer) HandleConnection(conn net.Conn) {
 	log.Printf("new connection from %s", conn.RemoteAddr())
@@ -47,13 +48,18 @@ func (server *TCPServer) HandleConnection(conn net.Conn) {
 
 		log.Printf("received %d bytes from %s: %q", n, conn.RemoteAddr(), buf[:n])
 
-		payload, _, err := resp.ParseRESP(buf)
+		el, _, err := redis.ParseRESP(buf)
 		if err != nil {
 			log.Printf("parse error from %s: %v", conn.RemoteAddr(), err)
 			return
 		}
+		cmd, err := redis.ParseCommand(el)
+		if err != nil {
+			log.Printf("command parse error from %s: %v", conn.RemoteAddr(), err)
+			return
+		}
 		errChan := make(chan error, 1024)
-		server.EventQueue <- Event{Conn: conn, Payload: payload, Result: errChan}
+		server.EventQueue <- Event{Conn: conn, Command: cmd, Result: errChan}
 
 		if err := <-errChan; err != nil {
 			log.Printf("error handling event from %s: %v", conn.RemoteAddr(), err)
@@ -91,48 +97,63 @@ func HandlePing(conn net.Conn) error {
 	return err
 }
 
-func HandleArray(conn net.Conn, array resp.RESPArray) error {
-	command, ok := array.Elements[0].(resp.RESPBulkString)
-
-	if !ok {
-		return fmt.Errorf("cant handle command %s", command.Value)
+func HandleEcho(conn net.Conn, args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("ECHO requires 1 argument, got %d", len(args))
 	}
-
-	lowCaseCommand := strings.ToLower(command.Value)
-
-	if lowCaseCommand == "ping" {
-		return HandlePing(conn)
-	}
-
-	if lowCaseCommand != "echo" {
-		return fmt.Errorf("cant handle command %s", command.Value)
-	}
-
-	toEcho, ok := array.Elements[1].(resp.RESPBulkString)
-
-	if !ok {
-		return fmt.Errorf("cant echo %v", array.Elements[1])
-	}
-
-	log.Printf("sending ECHO %q to %s", toEcho.Value, conn.RemoteAddr())
-	_, err := conn.Write(resp.EncodeBulkString(toEcho.Value))
+	log.Printf("sending ECHO %q to %s", args[0], conn.RemoteAddr())
+	_, err := conn.Write(redis.EncodeBulkString(args[0]))
 	if err != nil {
 		log.Printf("error sending ECHO to %s: %v", conn.RemoteAddr(), err)
 	}
 	return err
 }
 
+func HandleSet(conn net.Conn, args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf("SET requires 2 arguments, got %d", len(args))
+	}
+	key, value := args[0], args[1]
+	log.Printf("SET %q = %q (from %s)", key, value, conn.RemoteAddr())
+	Memory[key] = value
+	_, err := conn.Write(redis.EncodeSimpleString("OK"))
+	if err != nil {
+		log.Printf("error sending SET response to %s: %v", conn.RemoteAddr(), err)
+	}
+	return err
+}
+
+func HandleGet(conn net.Conn, args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("GET requires 1 argument, got %d", len(args))
+	}
+	key := args[0]
+	value, ok := Memory[key]
+	if !ok {
+		log.Printf("GET %q -> nil (from %s)", key, conn.RemoteAddr())
+		_, err := conn.Write(redis.EncodeNullBulkString())
+		return err
+	}
+	log.Printf("GET %q -> %q (from %s)", key, value, conn.RemoteAddr())
+	_, err := conn.Write(redis.EncodeBulkString(value))
+	if err != nil {
+		log.Printf("error sending GET response to %s: %v", conn.RemoteAddr(), err)
+	}
+	return err
+}
+
 func HandleEvent(ev Event) error {
-	switch payload := ev.Payload.(type) {
-	case resp.RESPBulkString:
-		if payload.Value == "PING" {
-			return HandlePing(ev.Conn)
-		}
-		log.Printf("unhandled bulk string command %q from %s", payload.Value, ev.Conn.RemoteAddr())
-	case resp.RESPArray:
-		return HandleArray(ev.Conn, payload)
+	switch ev.Command.Name {
+	case "PING":
+		return HandlePing(ev.Conn)
+	case "ECHO":
+		return HandleEcho(ev.Conn, ev.Command.Args)
+	case "SET":
+		return HandleSet(ev.Conn, ev.Command.Args)
+	case "GET":
+		return HandleGet(ev.Conn, ev.Command.Args)
 	default:
-		log.Printf("unhandled payload type %T from %s", payload, ev.Conn.RemoteAddr())
+		log.Printf("unhandled command %q from %s", ev.Command.Name, ev.Conn.RemoteAddr())
 	}
 	return nil
 }
@@ -164,7 +185,6 @@ func NewTCPServer(config ServerConfig) (*TCPServer, error) {
 var (
 	_ = net.Listen
 	_ = os.Exit
-	_ = resp.ParseRESP
 )
 
 func main() {

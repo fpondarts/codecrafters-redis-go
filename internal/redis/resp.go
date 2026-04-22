@@ -1,5 +1,5 @@
-// Package resp for handling RESP commands
-package resp
+// Package redis for handling Redis protocol and commands
+package redis
 
 import (
 	"bytes"
@@ -43,8 +43,16 @@ type RESPArray struct {
 
 func (r RESPArray) Type() string { return "array" }
 
+func EncodeSimpleString(s string) []byte {
+	return []byte("+" + s + "\r\n")
+}
+
 func EncodeBulkString(s string) []byte {
 	return []byte("$" + strconv.Itoa(len(s)) + "\r\n" + s + "\r\n")
+}
+
+func EncodeNullBulkString() []byte {
+	return []byte("$-1\r\n")
 }
 
 // ParseRESP parses a RESP-encoded buffer and returns the parsed element and
