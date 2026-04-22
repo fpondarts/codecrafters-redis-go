@@ -2,7 +2,6 @@ package redis
 
 import (
 	"errors"
-	"fmt"
 	"slices"
 	"time"
 )
@@ -72,12 +71,11 @@ func (s *Storage) LPush(key string, vals ...string) (int, error) {
 	if ok && !r.isExpired() && r.vtype != listType {
 		return 0, ErrWrongType
 	}
-	fmt.Println("Inserting: ", vals)
-	slices.Reverse(vals)
+	reversed := slices.Clone(vals)
+	slices.Reverse(reversed)
 
-	r.listVal = slices.Insert(r.listVal, 0, vals...)
-
-	fmt.Println("New listVal: ", r.listVal)
+	r.vtype = listType
+	r.listVal = slices.Insert(r.listVal, 0, reversed...)
 	s.storage[key] = r
 
 	return len(r.listVal), nil

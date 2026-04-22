@@ -82,7 +82,7 @@ func (r *Redis) handleRPush(args []string) ([]byte, error) {
 
 func (r *Redis) handleLPush(args []string) ([]byte, error) {
 	if len(args) < 2 {
-		return EncodeError("ERR wrong number of arguments for 'rpush' command"), nil
+		return EncodeError("ERR wrong number of arguments for 'lpush' command"), nil
 	}
 
 	key, vals := args[0], args[1:]
