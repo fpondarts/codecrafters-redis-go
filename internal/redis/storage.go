@@ -72,10 +72,9 @@ func (s *Storage) LPush(key string, vals ...string) (int, error) {
 	if ok && !r.isExpired() && r.vtype != listType {
 		return 0, ErrWrongType
 	}
-
+	fmt.Println("Inserting: ", vals)
 	slices.Reverse(vals)
 
-	fmt.Println("Inserting: ", vals)
 	r.listVal = slices.Insert(r.listVal, 0, vals...)
 
 	fmt.Println("New listVal: ", r.listVal)
