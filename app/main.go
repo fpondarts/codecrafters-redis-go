@@ -39,7 +39,7 @@ func (server *TCPServer) HandleConnection(conn net.Conn) {
 		pingCount := strings.Count(data, "PING")
 
 		for range pingCount {
-			_, err = conn.Write([]byte("PONG\r\n"))
+			_, err = conn.Write([]byte("+PONG\r\n"))
 			if err != nil {
 				return
 			}
