@@ -8,11 +8,17 @@ import (
 	"sync"
 )
 
+type PingEvent struct {
+	Conn   net.Conn
+	Amount int
+	Result error
+}
+
 type TCPServer struct {
 	Listener   net.Listener
 	Clients    map[net.Conn]struct{}
 	ClientsMtx sync.Mutex
-	EventQueue chan struct{}
+	EventQueue chan PingEvent
 }
 
 func (server *TCPServer) HandleConnection(conn net.Conn) {
@@ -37,12 +43,14 @@ func (server *TCPServer) HandleConnection(conn net.Conn) {
 		data := string(buf[:n])
 
 		pingCount := strings.Count(data, "PING")
+		server.EventQueue <- PingEvent{Conn: conn, Amount: pingCount, Result: nil}
+	}
+}
 
-		for range pingCount {
-			_, err = conn.Write([]byte("+PONG\r\n"))
-			if err != nil {
-				return
-			}
+func (server *TCPServer) EventLoop() {
+	for event := range server.EventQueue {
+		for range PingEvent.Amount {
+			event.Conn.Write([]byte("+PONG\r\n"))
 		}
 	}
 }
@@ -66,7 +74,7 @@ func NewTCPServer(config ServerConfig) (*TCPServer, error) {
 	return &TCPServer{
 		Listener:   listener,
 		Clients:    make(map[net.Conn]struct{}),
-		EventQueue: make(chan struct{}, 1000),
+		EventQueue: make(chan PingEvent, 1000),
 	}, nil
 }
 
