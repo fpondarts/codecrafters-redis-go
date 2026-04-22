@@ -6,19 +6,21 @@ import (
 	"os"
 	"strings"
 	"sync"
+
+	"github.com/codecrafters-io/redis-starter-go/internal/resp"
 )
 
-type PingEvent struct {
-	Conn   net.Conn
-	Amount int
-	Result chan error
+type Event struct {
+	Conn    net.Conn
+	Payload resp.RESPElement
+	Result  chan error
 }
 
 type TCPServer struct {
 	Listener   net.Listener
 	Clients    map[net.Conn]struct{}
 	ClientsMtx sync.Mutex
-	EventQueue chan PingEvent
+	EventQueue chan Event
 }
 
 func (server *TCPServer) HandleConnection(conn net.Conn) {
@@ -35,16 +37,18 @@ func (server *TCPServer) HandleConnection(conn net.Conn) {
 
 	buf := make([]byte, 512)
 	for {
-		n, err := conn.Read(buf)
+		_, err := conn.Read(buf)
 		if err != nil {
 			return
 		}
 
-		data := string(buf[:n])
-
-		pingCount := strings.Count(data, "PING")
+		payload, _, err := resp.ParseRESP(buf)
+		if err != nil {
+			fmt.Println("bad resp input")
+			return
+		}
 		errChan := make(chan error, 1024)
-		server.EventQueue <- PingEvent{Conn: conn, Amount: pingCount, Result: errChan}
+		server.EventQueue <- Event{Conn: conn, Payload: payload, Result: errChan}
 
 		if err := <-errChan; err != nil {
 			fmt.Printf("Error handling ping")
@@ -55,10 +59,8 @@ func (server *TCPServer) HandleConnection(conn net.Conn) {
 
 func (server *TCPServer) EventLoop() {
 	for event := range server.EventQueue {
-		for range event.Amount {
-			_, err := event.Conn.Write([]byte("+PONG\r\n"))
-			event.Result <- err
-		}
+		err := HandleEvent(event)
+		event.Result <- err
 	}
 }
 
@@ -73,6 +75,44 @@ func (server *TCPServer) Start() error {
 
 		go server.HandleConnection(conn)
 	}
+}
+
+func HandlePing(conn net.Conn) error {
+	_, err := conn.Write([]byte("+PONG\r\n"))
+	return err
+}
+
+func HandleArray(conn net.Conn, array resp.RESPArray) error {
+	if len(array.Elements) != 2 {
+		return fmt.Errorf("cant handle command")
+	}
+
+	command, ok := array.Elements[0].(resp.RESPBulkString)
+
+	if !ok || strings.ToLower(command.Value) != "echo" {
+		return fmt.Errorf("cant handle command %s", command.Value)
+	}
+
+	toEcho, ok := array.Elements[1].(resp.RESPBulkString)
+
+	if !ok {
+		return fmt.Errorf("cant echo %v", array.Elements[1])
+	}
+
+	_, err := conn.Write(resp.EncodeBulkString(toEcho.Value))
+	return err
+}
+
+func HandleEvent(ev Event) error {
+	switch payload := ev.Payload.(type) {
+	case resp.RESPBulkString:
+		if payload.Value == "PING" {
+			return HandlePing(ev.Conn)
+		}
+	case resp.RESPArray:
+
+	}
+	return nil
 }
 
 type ServerConfig struct {
@@ -94,7 +134,7 @@ func NewTCPServer(config ServerConfig) (*TCPServer, error) {
 	return &TCPServer{
 		Listener:   listener,
 		Clients:    make(map[net.Conn]struct{}),
-		EventQueue: make(chan PingEvent, 1000),
+		EventQueue: make(chan Event, 1000),
 	}, nil
 }
 
@@ -102,6 +142,7 @@ func NewTCPServer(config ServerConfig) (*TCPServer, error) {
 var (
 	_ = net.Listen
 	_ = os.Exit
+	_ = resp.ParseRESP
 )
 
 func main() {
