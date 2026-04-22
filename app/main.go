@@ -46,6 +46,7 @@ func main() {
 			if err != nil {
 				fmt.Println("Failed to send response")
 			}
+			fmt.Println("Sending PONG")
 		}
 	}
 }
