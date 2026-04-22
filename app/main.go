@@ -11,7 +11,7 @@ import (
 type PingEvent struct {
 	Conn   net.Conn
 	Amount int
-	Result error
+	Result chan error
 }
 
 type TCPServer struct {
@@ -43,15 +43,35 @@ func (server *TCPServer) HandleConnection(conn net.Conn) {
 		data := string(buf[:n])
 
 		pingCount := strings.Count(data, "PING")
-		server.EventQueue <- PingEvent{Conn: conn, Amount: pingCount, Result: nil}
+		errChan := make(chan error, 1024)
+		server.EventQueue <- PingEvent{Conn: conn, Amount: pingCount, Result: errChan}
+
+		if err := <-errChan; err != nil {
+			fmt.Printf("Error handling ping")
+			return
+		}
 	}
 }
 
 func (server *TCPServer) EventLoop() {
 	for event := range server.EventQueue {
-		for range PingEvent.Amount {
-			event.Conn.Write([]byte("+PONG\r\n"))
+		for range event.Amount {
+			_, err := event.Conn.Write([]byte("+PONG\r\n"))
+			event.Result <- err
 		}
+	}
+}
+
+func (server *TCPServer) Start() error {
+	go server.EventLoop()
+
+	for {
+		conn, err := server.Listener.Accept()
+		if err != nil {
+			return err
+		}
+
+		go server.HandleConnection(conn)
 	}
 }
 
@@ -91,20 +111,14 @@ func main() {
 		IP:   net.ParseIP("0.0.0.0"),
 		Port: 6379,
 	})
-
-	l := server.Listener
-
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	for {
-		conn, err := l.Accept()
-		if err != nil {
-			fmt.Println("Error accepting connection: ", err.Error())
-			os.Exit(1)
-		}
-		go server.HandleConnection(conn)
+	err = server.Start()
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
 	}
 }
