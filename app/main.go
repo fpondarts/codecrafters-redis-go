@@ -5,7 +5,10 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/codecrafters-io/redis-starter-go/internal/redis"
 )
@@ -23,7 +26,7 @@ type TCPServer struct {
 	EventQueue chan Event
 }
 
-var Memory = map[string]string{}
+var Storage = redis.NewStorage()
 
 func (server *TCPServer) HandleConnection(conn net.Conn) {
 	log.Printf("new connection from %s", conn.RemoteAddr())
@@ -110,12 +113,32 @@ func HandleEcho(conn net.Conn, args []string) error {
 }
 
 func HandleSet(conn net.Conn, args []string) error {
-	if len(args) != 2 {
-		return fmt.Errorf("SET requires 2 arguments, got %d", len(args))
+	if len(args) < 2 {
+		return fmt.Errorf("SET requires at least 2 arguments, got %d", len(args))
 	}
 	key, value := args[0], args[1]
-	log.Printf("SET %q = %q (from %s)", key, value, conn.RemoteAddr())
-	Memory[key] = value
+
+	var expiration time.Time
+	if len(args) > 2 {
+		if len(args) != 4 {
+			return fmt.Errorf("SET option requires a value")
+		}
+		n, err := strconv.ParseInt(args[3], 10, 64)
+		if err != nil || n <= 0 {
+			return fmt.Errorf("invalid expiration value %q", args[3])
+		}
+		switch strings.ToUpper(args[2]) {
+		case "EX":
+			expiration = time.Now().Add(time.Duration(n) * time.Second)
+		case "PX":
+			expiration = time.Now().Add(time.Duration(n) * time.Millisecond)
+		default:
+			return fmt.Errorf("unknown SET option %q", args[2])
+		}
+	}
+
+	log.Printf("SET %q = %q expiration=%v (from %s)", key, value, expiration, conn.RemoteAddr())
+	Storage.Set(key, value, expiration)
 	_, err := conn.Write(redis.EncodeSimpleString("OK"))
 	if err != nil {
 		log.Printf("error sending SET response to %s: %v", conn.RemoteAddr(), err)
@@ -128,14 +151,14 @@ func HandleGet(conn net.Conn, args []string) error {
 		return fmt.Errorf("GET requires 1 argument, got %d", len(args))
 	}
 	key := args[0]
-	value, ok := Memory[key]
+	record, ok := Storage.Get(key)
 	if !ok {
 		log.Printf("GET %q -> nil (from %s)", key, conn.RemoteAddr())
 		_, err := conn.Write(redis.EncodeNullBulkString())
 		return err
 	}
-	log.Printf("GET %q -> %q (from %s)", key, value, conn.RemoteAddr())
-	_, err := conn.Write(redis.EncodeBulkString(value))
+	log.Printf("GET %q -> %q (from %s)", key, record.Value, conn.RemoteAddr())
+	_, err := conn.Write(redis.EncodeBulkString(record.Value))
 	if err != nil {
 		log.Printf("error sending GET response to %s: %v", conn.RemoteAddr(), err)
 	}
