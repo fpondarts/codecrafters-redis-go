@@ -79,7 +79,23 @@ func (s *Storage) GetListRange(key string, start, inclusiveEnd int) ([]string, e
 		return []string{}, nil
 	}
 
-	end := min(inclusiveEnd, len(r.listVal)-1)
+	if start < 0 {
+		if start < -len(r.listVal) {
+			start = 0
+		} else {
+			start = len(r.listVal) + start
+		}
+	}
 
-	return r.listVal[start : end+1], nil
+	if inclusiveEnd < 0 {
+		if inclusiveEnd < -len(r.listVal) {
+			inclusiveEnd = 0
+		} else {
+			inclusiveEnd = len(r.listVal) + inclusiveEnd
+		}
+	}
+
+	inclusiveEnd = min(inclusiveEnd, len(r.listVal)-1)
+
+	return r.listVal[start : inclusiveEnd+1], nil
 }
