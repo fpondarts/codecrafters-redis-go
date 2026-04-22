@@ -92,10 +92,6 @@ func HandlePing(conn net.Conn) error {
 }
 
 func HandleArray(conn net.Conn, array resp.RESPArray) error {
-	if len(array.Elements) != 2 {
-		return fmt.Errorf("cant handle command")
-	}
-
 	command, ok := array.Elements[0].(resp.RESPBulkString)
 
 	if !ok {
