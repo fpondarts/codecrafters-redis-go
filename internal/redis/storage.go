@@ -2,6 +2,7 @@ package redis
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 )
@@ -73,7 +74,11 @@ func (s *Storage) LPush(key string, vals ...string) (int, error) {
 	}
 
 	slices.Reverse(vals)
+
+	fmt.Println("Inserting: ", vals)
 	r.listVal = slices.Insert(r.listVal, 0, vals...)
+
+	fmt.Println("New listVal: ", r.listVal)
 	s.storage[key] = r
 
 	return len(r.listVal), nil

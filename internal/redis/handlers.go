@@ -86,7 +86,7 @@ func (r *Redis) handleLPush(args []string) ([]byte, error) {
 	}
 
 	key, vals := args[0], args[1:]
-	log.Printf("RPUSH %q %v", key, vals)
+	log.Printf("LPUSH %q %v", key, vals)
 	n, err := r.storage.LPush(key, vals...)
 	if err != nil {
 		return EncodeError(err.Error()), nil
