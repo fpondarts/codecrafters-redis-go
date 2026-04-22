@@ -29,21 +29,23 @@ func main() {
 	}
 
 	buf := make([]byte, 1024)
-	n, err := conn.Read(buf)
-	if err != nil {
-		fmt.Println("Error reading from connection at: ", conn.RemoteAddr())
-	}
 
-	data := buf[:n]
-
-	fmt.Println("Received: ", string(data))
-
-	nPings := strings.Count(string(data), "PING")
-
-	for range nPings {
-		_, err = conn.Write([]byte("+PONG\r\n"))
+	for n, err := conn.Read(buf); n != 0; {
 		if err != nil {
-			fmt.Println("Failed to send response")
+			fmt.Println("Error reading from connection at: ", conn.RemoteAddr())
+		}
+
+		data := buf[:n]
+
+		fmt.Println("Received: ", string(data))
+
+		nPings := strings.Count(string(data), "PING")
+
+		for range nPings {
+			_, err = conn.Write([]byte("+PONG\r\n"))
+			if err != nil {
+				fmt.Println("Failed to send response")
+			}
 		}
 	}
 }
