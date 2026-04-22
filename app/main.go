@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"strings"
@@ -24,11 +25,13 @@ type TCPServer struct {
 }
 
 func (server *TCPServer) HandleConnection(conn net.Conn) {
+	log.Printf("new connection from %s", conn.RemoteAddr())
 	server.ClientsMtx.Lock()
 	server.Clients[conn] = struct{}{}
 	server.ClientsMtx.Unlock()
 
 	defer func() {
+		log.Printf("connection closed: %s", conn.RemoteAddr())
 		conn.Close()
 		server.ClientsMtx.Lock()
 		delete(server.Clients, conn)
@@ -37,21 +40,23 @@ func (server *TCPServer) HandleConnection(conn net.Conn) {
 
 	buf := make([]byte, 512)
 	for {
-		_, err := conn.Read(buf)
+		n, err := conn.Read(buf)
 		if err != nil {
 			return
 		}
 
+		log.Printf("received %d bytes from %s: %q", n, conn.RemoteAddr(), buf[:n])
+
 		payload, _, err := resp.ParseRESP(buf)
 		if err != nil {
-			fmt.Println("bad resp input")
+			log.Printf("parse error from %s: %v", conn.RemoteAddr(), err)
 			return
 		}
 		errChan := make(chan error, 1024)
 		server.EventQueue <- Event{Conn: conn, Payload: payload, Result: errChan}
 
 		if err := <-errChan; err != nil {
-			fmt.Printf("Error handling ping")
+			log.Printf("error handling event from %s: %v", conn.RemoteAddr(), err)
 			return
 		}
 	}
@@ -78,7 +83,11 @@ func (server *TCPServer) Start() error {
 }
 
 func HandlePing(conn net.Conn) error {
+	log.Printf("sending PONG to %s", conn.RemoteAddr())
 	_, err := conn.Write([]byte("+PONG\r\n"))
+	if err != nil {
+		log.Printf("error sending PONG to %s: %v", conn.RemoteAddr(), err)
+	}
 	return err
 }
 
@@ -99,7 +108,11 @@ func HandleArray(conn net.Conn, array resp.RESPArray) error {
 		return fmt.Errorf("cant echo %v", array.Elements[1])
 	}
 
+	log.Printf("sending ECHO %q to %s", toEcho.Value, conn.RemoteAddr())
 	_, err := conn.Write(resp.EncodeBulkString(toEcho.Value))
+	if err != nil {
+		log.Printf("error sending ECHO to %s: %v", conn.RemoteAddr(), err)
+	}
 	return err
 }
 
@@ -109,8 +122,11 @@ func HandleEvent(ev Event) error {
 		if payload.Value == "PING" {
 			return HandlePing(ev.Conn)
 		}
+		log.Printf("unhandled bulk string command %q from %s", payload.Value, ev.Conn.RemoteAddr())
 	case resp.RESPArray:
-
+		return HandleArray(ev.Conn, payload)
+	default:
+		log.Printf("unhandled payload type %T from %s", payload, ev.Conn.RemoteAddr())
 	}
 	return nil
 }
@@ -146,20 +162,17 @@ var (
 )
 
 func main() {
-	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	fmt.Println("Logs from your program will appear here!")
 	server, err := NewTCPServer(ServerConfig{
 		IP:   net.ParseIP("0.0.0.0"),
 		Port: 6379,
 	})
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		log.Fatalf("failed to create server: %v", err)
 	}
 
-	err = server.Start()
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+	log.Printf("listening on %s", server.Listener.Addr())
+	if err := server.Start(); err != nil {
+		log.Fatalf("server error: %v", err)
 	}
 }
