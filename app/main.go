@@ -98,7 +98,17 @@ func HandleArray(conn net.Conn, array resp.RESPArray) error {
 
 	command, ok := array.Elements[0].(resp.RESPBulkString)
 
-	if !ok || strings.ToLower(command.Value) != "echo" {
+	if !ok {
+		return fmt.Errorf("cant handle command %s", command.Value)
+	}
+
+	lowCaseCommand := strings.ToLower(command.Value)
+
+	if lowCaseCommand == "ping" {
+		return HandlePing(conn)
+	}
+
+	if lowCaseCommand != "echo" {
 		return fmt.Errorf("cant handle command %s", command.Value)
 	}
 
