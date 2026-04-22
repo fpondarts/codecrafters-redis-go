@@ -63,3 +63,23 @@ func (s *Storage) RPush(key string, vals ...string) (int, error) {
 	s.storage[key] = r
 	return len(r.listVal), nil
 }
+
+func (s *Storage) GetListRange(key string, start, inclusiveEnd int) ([]string, error) {
+	if r, ok := s.storage[key]; ok && !r.isExpired() && r.vtype != listType {
+		return []string{}, ErrWrongType
+	}
+
+	if start > inclusiveEnd {
+		return []string{}, nil
+	}
+
+	r := s.storage[key]
+
+	if start >= len(r.listVal) {
+		return []string{}, nil
+	}
+
+	end := min(inclusiveEnd, len(r.listVal)-1)
+
+	return r.listVal[start : end+1], nil
+}

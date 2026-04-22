@@ -193,6 +193,33 @@ func HandleRPush(conn net.Conn, args []string) error {
 	return err
 }
 
+func HandleLRange(conn net.Conn, args []string) error {
+	if len(args) != 3 {
+		return fmt.Errorf("LRANGE requires 3 arguments, got %d", len(args))
+	}
+	key := args[0]
+	start, err := strconv.Atoi(args[1])
+	if err != nil {
+		return fmt.Errorf("cannot parse start %q", args[1])
+	}
+	end, err := strconv.Atoi(args[2])
+	if err != nil {
+		return fmt.Errorf("cannot parse end %q", args[2])
+	}
+	list, err := Storage.GetListRange(key, start, end)
+	if err != nil {
+		log.Printf("LRANGE error for %q from %s: %v", key, conn.RemoteAddr(), err)
+		_, werr := conn.Write(redis.EncodeError(err.Error()))
+		return werr
+	}
+	log.Printf("LRANGE %q [%d:%d] -> %d elements (from %s)", key, start, end, len(list), conn.RemoteAddr())
+	_, err = conn.Write(redis.EncodeArray(list))
+	if err != nil {
+		log.Printf("error sending LRANGE response to %s: %v", conn.RemoteAddr(), err)
+	}
+	return err
+}
+
 func HandleEvent(ev Event) error {
 	switch ev.Command.Name {
 	case "PING":
@@ -205,6 +232,8 @@ func HandleEvent(ev Event) error {
 		return HandleGet(ev.Conn, ev.Command.Args)
 	case "RPUSH":
 		return HandleRPush(ev.Conn, ev.Command.Args)
+	case "LRANGE":
+		return HandleLRange(ev.Conn, ev.Command.Args)
 	default:
 		log.Printf("unhandled command %q from %s", ev.Command.Name, ev.Conn.RemoteAddr())
 	}
