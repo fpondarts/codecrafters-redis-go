@@ -80,6 +80,21 @@ func (r *Redis) handleRPush(args []string) ([]byte, error) {
 	return EncodeInteger(int64(n)), nil
 }
 
+func (r *Redis) handleLPush(args []string) ([]byte, error) {
+	if len(args) < 2 {
+		return EncodeError("ERR wrong number of arguments for 'rpush' command"), nil
+	}
+
+	key, vals := args[0], args[1:]
+
+	n, err := r.storage.LPush(key, vals...)
+	if err != nil {
+		return EncodeError(err.Error()), nil
+	}
+
+	return EncodeInteger(int64(n)), nil
+}
+
 func (r *Redis) handleLRange(args []string) ([]byte, error) {
 	if len(args) != 3 {
 		return EncodeError(fmt.Sprintf("ERR wrong number of arguments for 'lrange' command")), nil

@@ -39,6 +39,9 @@ func (r *Redis) dispatch(cmd Command) ([]byte, error) {
 		return r.handleSet(cmd.Args)
 	case "GET":
 		return r.handleGet(cmd.Args)
+
+	case "LPUSH":
+		return r.handleLPush(cmd.Args)
 	case "RPUSH":
 		return r.handleRPush(cmd.Args)
 	case "LRANGE":

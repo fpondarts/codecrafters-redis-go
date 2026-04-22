@@ -2,6 +2,7 @@ package redis
 
 import (
 	"errors"
+	"slices"
 	"time"
 )
 
@@ -61,6 +62,20 @@ func (s *Storage) RPush(key string, vals ...string) (int, error) {
 	r.vtype = listType
 	r.listVal = append(r.listVal, vals...)
 	s.storage[key] = r
+	return len(r.listVal), nil
+}
+
+func (s *Storage) LPush(key string, vals ...string) (int, error) {
+	r, ok := s.storage[key]
+
+	if ok && !r.isExpired() && r.vtype != listType {
+		return 0, ErrWrongType
+	}
+
+	slices.Reverse(vals)
+	r.listVal = slices.Insert(r.listVal, 0, vals...)
+	s.storage[key] = r
+
 	return len(r.listVal), nil
 }
 
