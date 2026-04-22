@@ -28,9 +28,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	buf := make([]byte, 1024)
-
-	for n, err := conn.Read(buf); n != 0; {
+	for {
+		buf := make([]byte, 1024)
+		n, err := conn.Read(buf)
 		if err != nil {
 			fmt.Println("Error reading from connection at: ", conn.RemoteAddr())
 		}
