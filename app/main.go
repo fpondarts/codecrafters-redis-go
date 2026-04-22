@@ -5,18 +5,15 @@ import (
 	"log"
 	"net"
 	"os"
-	"strconv"
-	"strings"
 	"sync"
-	"time"
 
 	"github.com/codecrafters-io/redis-starter-go/internal/redis"
 )
 
 type Event struct {
-	Conn    net.Conn
-	Command redis.Command
-	Result  chan error
+	Conn   net.Conn
+	Data   []byte
+	Result chan error
 }
 
 type TCPServer struct {
@@ -24,9 +21,8 @@ type TCPServer struct {
 	Clients    map[net.Conn]struct{}
 	ClientsMtx sync.Mutex
 	EventQueue chan Event
+	HandleFunc func([]byte) ([]byte, error)
 }
-
-var Storage = redis.NewStorage()
 
 func (server *TCPServer) HandleConnection(conn net.Conn) {
 	log.Printf("new connection from %s", conn.RemoteAddr())
@@ -48,24 +44,13 @@ func (server *TCPServer) HandleConnection(conn net.Conn) {
 		if err != nil {
 			return
 		}
-
 		log.Printf("received %d bytes from %s: %q", n, conn.RemoteAddr(), buf[:n])
-
-		el, _, err := redis.ParseRESP(buf)
-		if err != nil {
-			log.Printf("parse error from %s: %v", conn.RemoteAddr(), err)
-			return
-		}
-		cmd, err := redis.ParseCommand(el)
-		if err != nil {
-			log.Printf("command parse error from %s: %v", conn.RemoteAddr(), err)
-			return
-		}
-		errChan := make(chan error, 1024)
-		server.EventQueue <- Event{Conn: conn, Command: cmd, Result: errChan}
-
+		data := make([]byte, n)
+		copy(data, buf[:n])
+		errChan := make(chan error, 1)
+		server.EventQueue <- Event{Conn: conn, Data: data, Result: errChan}
 		if err := <-errChan; err != nil {
-			log.Printf("error handling event from %s: %v", conn.RemoteAddr(), err)
+			log.Printf("write error for %s: %v", conn.RemoteAddr(), err)
 			return
 		}
 	}
@@ -73,8 +58,17 @@ func (server *TCPServer) HandleConnection(conn net.Conn) {
 
 func (server *TCPServer) EventLoop() {
 	for event := range server.EventQueue {
-		err := HandleEvent(event)
-		event.Result <- err
+		resp, err := server.HandleFunc(event.Data)
+		if err != nil {
+			log.Printf("internal error handling event: %v", err)
+			event.Result <- err
+			continue
+		}
+		_, werr := event.Conn.Write(resp)
+		if werr != nil {
+			log.Printf("write error to %s: %v", event.Conn.RemoteAddr(), werr)
+		}
+		event.Result <- werr
 	}
 }
 
@@ -91,161 +85,12 @@ func (server *TCPServer) Start() error {
 	}
 }
 
-func HandlePing(conn net.Conn) error {
-	log.Printf("sending PONG to %s", conn.RemoteAddr())
-	_, err := conn.Write([]byte("+PONG\r\n"))
-	if err != nil {
-		log.Printf("error sending PONG to %s: %v", conn.RemoteAddr(), err)
-	}
-	return err
-}
-
-func HandleEcho(conn net.Conn, args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("ECHO requires 1 argument, got %d", len(args))
-	}
-	log.Printf("sending ECHO %q to %s", args[0], conn.RemoteAddr())
-	_, err := conn.Write(redis.EncodeBulkString(args[0]))
-	if err != nil {
-		log.Printf("error sending ECHO to %s: %v", conn.RemoteAddr(), err)
-	}
-	return err
-}
-
-func HandleSet(conn net.Conn, args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("SET requires at least 2 arguments, got %d", len(args))
-	}
-	key, value := args[0], args[1]
-
-	var expiration time.Time
-	if len(args) > 2 {
-		if len(args) != 4 {
-			return fmt.Errorf("SET option requires a value")
-		}
-		n, err := strconv.ParseInt(args[3], 10, 64)
-		if err != nil || n <= 0 {
-			return fmt.Errorf("invalid expiration value %q", args[3])
-		}
-		switch strings.ToUpper(args[2]) {
-		case "EX":
-			expiration = time.Now().Add(time.Duration(n) * time.Second)
-		case "PX":
-			expiration = time.Now().Add(time.Duration(n) * time.Millisecond)
-		default:
-			return fmt.Errorf("unknown SET option %q", args[2])
-		}
-	}
-
-	log.Printf("SET %q = %q expiration=%v (from %s)", key, value, expiration, conn.RemoteAddr())
-	if err := Storage.Set(key, value, expiration); err != nil {
-		log.Printf("SET error for %q from %s: %v", key, conn.RemoteAddr(), err)
-		_, werr := conn.Write(redis.EncodeError(err.Error()))
-		return werr
-	}
-	_, err := conn.Write(redis.EncodeSimpleString("OK"))
-	if err != nil {
-		log.Printf("error sending SET response to %s: %v", conn.RemoteAddr(), err)
-	}
-	return err
-}
-
-func HandleGet(conn net.Conn, args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("GET requires 1 argument, got %d", len(args))
-	}
-	key := args[0]
-	val, ok, err := Storage.Get(key)
-	if err != nil {
-		log.Printf("GET error for %q from %s: %v", key, conn.RemoteAddr(), err)
-		_, werr := conn.Write(redis.EncodeError(err.Error()))
-		return werr
-	}
-	if !ok {
-		log.Printf("GET %q -> nil (from %s)", key, conn.RemoteAddr())
-		_, err := conn.Write(redis.EncodeNullBulkString())
-		return err
-	}
-	log.Printf("GET %q -> %q (from %s)", key, val, conn.RemoteAddr())
-	_, err = conn.Write(redis.EncodeBulkString(val))
-	if err != nil {
-		log.Printf("error sending GET response to %s: %v", conn.RemoteAddr(), err)
-	}
-	return err
-}
-
-func HandleRPush(conn net.Conn, args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("RPUSH requires at least 2 arguments, got %d", len(args))
-	}
-	key, vals := args[0], args[1:]
-	log.Printf("RPUSH %q %v (from %s)", key, vals, conn.RemoteAddr())
-	n, err := Storage.RPush(key, vals...)
-	if err != nil {
-		log.Printf("RPUSH error for %q from %s: %v", key, conn.RemoteAddr(), err)
-		_, werr := conn.Write(redis.EncodeError(err.Error()))
-		return werr
-	}
-	_, err = conn.Write(redis.EncodeInteger(int64(n)))
-	if err != nil {
-		log.Printf("error sending RPUSH response to %s: %v", conn.RemoteAddr(), err)
-	}
-	return err
-}
-
-func HandleLRange(conn net.Conn, args []string) error {
-	if len(args) != 3 {
-		return fmt.Errorf("LRANGE requires 3 arguments, got %d", len(args))
-	}
-	key := args[0]
-	start, err := strconv.Atoi(args[1])
-	if err != nil {
-		return fmt.Errorf("cannot parse start %q", args[1])
-	}
-	end, err := strconv.Atoi(args[2])
-	if err != nil {
-		return fmt.Errorf("cannot parse end %q", args[2])
-	}
-	list, err := Storage.GetListRange(key, start, end)
-	if err != nil {
-		log.Printf("LRANGE error for %q from %s: %v", key, conn.RemoteAddr(), err)
-		_, werr := conn.Write(redis.EncodeError(err.Error()))
-		return werr
-	}
-	log.Printf("LRANGE %q [%d:%d] -> %d elements (from %s)", key, start, end, len(list), conn.RemoteAddr())
-	_, err = conn.Write(redis.EncodeArray(list))
-	if err != nil {
-		log.Printf("error sending LRANGE response to %s: %v", conn.RemoteAddr(), err)
-	}
-	return err
-}
-
-func HandleEvent(ev Event) error {
-	switch ev.Command.Name {
-	case "PING":
-		return HandlePing(ev.Conn)
-	case "ECHO":
-		return HandleEcho(ev.Conn, ev.Command.Args)
-	case "SET":
-		return HandleSet(ev.Conn, ev.Command.Args)
-	case "GET":
-		return HandleGet(ev.Conn, ev.Command.Args)
-	case "RPUSH":
-		return HandleRPush(ev.Conn, ev.Command.Args)
-	case "LRANGE":
-		return HandleLRange(ev.Conn, ev.Command.Args)
-	default:
-		log.Printf("unhandled command %q from %s", ev.Command.Name, ev.Conn.RemoteAddr())
-	}
-	return nil
-}
-
 type ServerConfig struct {
 	IP   net.IP
 	Port int
 }
 
-func NewTCPServer(config ServerConfig) (*TCPServer, error) {
+func NewTCPServer(config ServerConfig, handleFunc func([]byte) ([]byte, error)) (*TCPServer, error) {
 	addr := &net.TCPAddr{
 		IP:   config.IP,
 		Port: config.Port,
@@ -260,6 +105,7 @@ func NewTCPServer(config ServerConfig) (*TCPServer, error) {
 		Listener:   listener,
 		Clients:    make(map[net.Conn]struct{}),
 		EventQueue: make(chan Event, 1000),
+		HandleFunc: handleFunc,
 	}, nil
 }
 
@@ -271,10 +117,11 @@ var (
 
 func main() {
 	fmt.Println("Logs from your program will appear here!")
+	r := redis.NewRedis()
 	server, err := NewTCPServer(ServerConfig{
 		IP:   net.ParseIP("0.0.0.0"),
 		Port: 6379,
-	})
+	}, r.Handle)
 	if err != nil {
 		log.Fatalf("failed to create server: %v", err)
 	}
