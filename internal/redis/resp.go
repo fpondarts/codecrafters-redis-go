@@ -43,6 +43,14 @@ type RESPArray struct {
 
 func (r RESPArray) Type() string { return "array" }
 
+func EncodeInteger(n int64) []byte {
+	return []byte(":" + strconv.FormatInt(n, 10) + "\r\n")
+}
+
+func EncodeError(msg string) []byte {
+	return []byte("-" + msg + "\r\n")
+}
+
 func EncodeSimpleString(s string) []byte {
 	return []byte("+" + s + "\r\n")
 }

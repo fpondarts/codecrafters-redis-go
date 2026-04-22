@@ -138,7 +138,11 @@ func HandleSet(conn net.Conn, args []string) error {
 	}
 
 	log.Printf("SET %q = %q expiration=%v (from %s)", key, value, expiration, conn.RemoteAddr())
-	Storage.Set(key, value, expiration)
+	if err := Storage.Set(key, value, expiration); err != nil {
+		log.Printf("SET error for %q from %s: %v", key, conn.RemoteAddr(), err)
+		_, werr := conn.Write(redis.EncodeError(err.Error()))
+		return werr
+	}
 	_, err := conn.Write(redis.EncodeSimpleString("OK"))
 	if err != nil {
 		log.Printf("error sending SET response to %s: %v", conn.RemoteAddr(), err)
@@ -151,16 +155,40 @@ func HandleGet(conn net.Conn, args []string) error {
 		return fmt.Errorf("GET requires 1 argument, got %d", len(args))
 	}
 	key := args[0]
-	record, ok := Storage.Get(key)
+	val, ok, err := Storage.Get(key)
+	if err != nil {
+		log.Printf("GET error for %q from %s: %v", key, conn.RemoteAddr(), err)
+		_, werr := conn.Write(redis.EncodeError(err.Error()))
+		return werr
+	}
 	if !ok {
 		log.Printf("GET %q -> nil (from %s)", key, conn.RemoteAddr())
 		_, err := conn.Write(redis.EncodeNullBulkString())
 		return err
 	}
-	log.Printf("GET %q -> %q (from %s)", key, record.Value, conn.RemoteAddr())
-	_, err := conn.Write(redis.EncodeBulkString(record.Value))
+	log.Printf("GET %q -> %q (from %s)", key, val, conn.RemoteAddr())
+	_, err = conn.Write(redis.EncodeBulkString(val))
 	if err != nil {
 		log.Printf("error sending GET response to %s: %v", conn.RemoteAddr(), err)
+	}
+	return err
+}
+
+func HandleRPush(conn net.Conn, args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("RPUSH requires at least 2 arguments, got %d", len(args))
+	}
+	key, vals := args[0], args[1:]
+	log.Printf("RPUSH %q %v (from %s)", key, vals, conn.RemoteAddr())
+	n, err := Storage.RPush(key, vals...)
+	if err != nil {
+		log.Printf("RPUSH error for %q from %s: %v", key, conn.RemoteAddr(), err)
+		_, werr := conn.Write(redis.EncodeError(err.Error()))
+		return werr
+	}
+	_, err = conn.Write(redis.EncodeInteger(int64(n)))
+	if err != nil {
+		log.Printf("error sending RPUSH response to %s: %v", conn.RemoteAddr(), err)
 	}
 	return err
 }
@@ -175,6 +203,8 @@ func HandleEvent(ev Event) error {
 		return HandleSet(ev.Conn, ev.Command.Args)
 	case "GET":
 		return HandleGet(ev.Conn, ev.Command.Args)
+	case "RPUSH":
+		return HandleRPush(ev.Conn, ev.Command.Args)
 	default:
 		log.Printf("unhandled command %q from %s", ev.Command.Name, ev.Conn.RemoteAddr())
 	}
