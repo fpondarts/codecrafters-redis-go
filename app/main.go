@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 )
 
 // Ensures gofmt doesn't remove the "net" and "os" imports in stage 1 (feel free to remove this!)
@@ -27,8 +28,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	_, err = conn.Write([]byte("+PONG\r\n"))
+	buf := make([]byte, 1024)
+	n, err := conn.Read(buf)
 	if err != nil {
-		fmt.Println("Failed to send response")
+		fmt.Println("Error reading from connection at: ", conn.RemoteAddr())
+	}
+
+	data := buf[:n]
+
+	fmt.Println("Received: ", string(data))
+
+	nPings := strings.Count(string(data), "PING")
+
+	for range nPings {
+		_, err = conn.Write([]byte("+PONG\r\n"))
+		if err != nil {
+			fmt.Println("Failed to send response")
+		}
 	}
 }
