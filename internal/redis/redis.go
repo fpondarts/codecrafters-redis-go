@@ -19,12 +19,13 @@ type waiter struct {
 }
 
 type Redis struct {
-	storage *Storage
-	waiters map[string][]*waiter // key -> FIFO list of blocked clients
+	storage      *Storage
+	waitersBLPOP map[string][]*waiter // key -> FIFO list of blocked clients
+	waitersXREAD map[string][]*waiter
 }
 
 func NewRedis() *Redis {
-	return &Redis{storage: NewStorage(), waiters: make(map[string][]*waiter)}
+	return &Redis{storage: NewStorage(), waitersBLPOP: make(map[string][]*waiter), waitersXREAD: make(map[string][]*waiter)}
 }
 
 // Handle is the single entry point for the TCP server. It parses buf as a RESP
@@ -77,7 +78,7 @@ func (r *Redis) dispatch(cmd Command) (Response, error) {
 	case "XRANGE":
 		return wrap(r.handleXRange(cmd.Args))
 	case "XREAD":
-		return wrap(r.handleXRead(cmd.Args))
+		return r.handleXRead(cmd.Args)
 	case "TYPE":
 		return r.handleType(cmd.Args)
 	default:

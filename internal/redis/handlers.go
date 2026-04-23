@@ -98,9 +98,9 @@ func (r *Redis) handleLPush(args []string) ([]byte, error) {
 // Called from handleLPush/handleRPush after a successful push.
 // Only runs in the EventLoop goroutine so no locking is needed.
 func (r *Redis) notifyWaiters(key string) {
-	for len(r.waiters[key]) > 0 {
-		w := r.waiters[key][0]
-		r.waiters[key] = r.waiters[key][1:]
+	for len(r.waitersBLPOP[key]) > 0 {
+		w := r.waitersBLPOP[key][0]
+		r.waitersBLPOP[key] = r.waitersBLPOP[key][1:]
 
 		if !w.claimed.CompareAndSwap(false, true) {
 			continue // timeout goroutine already claimed this waiter
@@ -114,8 +114,8 @@ func (r *Redis) notifyWaiters(key string) {
 		log.Printf("notified BLPOP waiter for %q -> %q", key, popped[0])
 		return
 	}
-	if len(r.waiters[key]) == 0 {
-		delete(r.waiters, key)
+	if len(r.waitersBLPOP[key]) == 0 {
+		delete(r.waitersBLPOP, key)
 	}
 }
 
@@ -198,7 +198,7 @@ func (r *Redis) handleBLPop(args []string) (Response, error) {
 
 	// Register waiter in FIFO order
 	w := &waiter{ch: make(chan []byte, 1)}
-	r.waiters[key] = append(r.waiters[key], w)
+	r.waitersBLPOP[key] = append(r.waitersBLPOP[key], w)
 	log.Printf("BLPOP %q -> blocking (timeout=%.3fs)", key, timeoutSecs)
 
 	// Timeout goroutine: races with notifyWaiters via CAS.
@@ -225,7 +225,33 @@ func (r *Redis) handleXAdd(args []string) ([]byte, error) {
 		return EncodeError(err.Error()), nil
 	}
 	log.Printf("XADD %q %q -> %q", key, id, resultID)
+	r.notifyXReadWaiters(key)
 	return EncodeBulkString(resultID), nil
+}
+
+func (r *Redis) notifyXReadWaiters(key string) {
+	for waiterKey, waiters := range r.waitersXREAD {
+		if strings.Contains(waiterKey, key) {
+			for _, waiter := range waiters {
+				if !waiter.claimed.CompareAndSwap(false, true) {
+					continue
+				}
+				parts := strings.Split(waiterKey, ",")
+				n := len(parts) / 2
+				keys, ids := parts[:n], parts[n:]
+
+				results := [][]StreamEntry{}
+
+				for i, key := range keys {
+					r, _ := r.storage.XRead(key, ids[i])
+					results = append(results, r)
+				}
+
+				waiter.ch <- EncodeXReadResults(keys, results)
+			}
+			delete(r.waitersXREAD, waiterKey)
+		}
+	}
 }
 
 func (r *Redis) handleXRange(args []string) ([]byte, error) {
@@ -241,14 +267,33 @@ func (r *Redis) handleXRange(args []string) ([]byte, error) {
 	return EncodeStreamEntries(entries), nil
 }
 
-func (r *Redis) handleXRead(args []string) ([]byte, error) {
-	// Syntax: XREAD STREAMS key1 key2 ... keyN id1 id2 ... idN
-	if len(args) < 3 || strings.ToUpper(args[0]) != "STREAMS" {
-		return EncodeError("ERR syntax error"), nil
+func (r *Redis) handleXRead(args []string) (Response, error) {
+	// Syntax: XREAD BLOCK <milliseconds> STREAMS key1 key2 ... keyN id1 id2 ... idN
+
+	if len(args) < 3 {
+		return Response{Data: EncodeError("ERR syntax error")}, nil
 	}
-	rest := args[1:]
+
+	blocking, blockingMS := false, 0
+
+	nextArg := 0
+	if strings.ToUpper(args[0]) == "BLOCK" {
+		blocking = true
+		parsedMS, err := strconv.Atoi(args[1])
+		if err != nil {
+			return Response{Data: EncodeError("Err syntax error")}, nil
+		}
+		blockingMS = parsedMS
+		nextArg += 2
+	}
+
+	if strings.ToUpper(args[nextArg]) != "STREAMS" {
+		return Response{Data: EncodeError("Err syntax error")}, nil
+	}
+
+	rest := args[nextArg+1:]
 	if len(rest)%2 != 0 {
-		return EncodeError("ERR syntax error"), nil
+		return Response{Data: EncodeError("ERR syntax error")}, nil
 	}
 	n := len(rest) / 2
 	keys, ids := rest[:n], rest[n:]
@@ -258,18 +303,33 @@ func (r *Redis) handleXRead(args []string) ([]byte, error) {
 	for i, key := range keys {
 		entries, err := r.storage.XRead(key, ids[i])
 		if err != nil {
-			return EncodeError(err.Error()), nil
+			return Response{Data: EncodeError(err.Error())}, nil
 		}
 		results[i] = entries
 		if len(entries) > 0 {
 			hasAny = true
 		}
 	}
-	if !hasAny {
-		return EncodeNullArray(), nil
+
+	if hasAny {
+		log.Printf("XREAD STREAMS %v %v", keys, ids)
+		return Response{Data: EncodeXReadResults(keys, results)}, nil
 	}
-	log.Printf("XREAD STREAMS %v %v", keys, ids)
-	return EncodeXReadResults(keys, results), nil
+	if !blocking {
+		return Response{Data: EncodeNullArray()}, nil
+	}
+
+	xreadWaiterKey := strings.Join(rest, ",")
+	waiter := &waiter{ch: make(chan []byte, 1)}
+	r.waitersXREAD[xreadWaiterKey] = append(r.waitersXREAD[xreadWaiterKey], waiter)
+
+	go func() {
+		time.Sleep(time.Duration(blockingMS * int(time.Millisecond)))
+		if !waiter.claimed.CompareAndSwap(false, true) {
+			waiter.ch <- EncodeNullArray()
+		}
+	}()
+	return Response{Pending: waiter.ch}, nil
 }
 
 func (r *Redis) handleType(args []string) (Response, error) {
