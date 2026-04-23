@@ -107,10 +107,23 @@ func (r *Redis) handleLRange(args []string) ([]byte, error) {
 	if err != nil {
 		return EncodeError("ERR value is not an integer or out of range"), nil
 	}
-	list, err := r.storage.GetListRange(args[0], start, end)
+	list, err := r.storage.LRange(args[0], start, end)
 	if err != nil {
 		return EncodeError(err.Error()), nil
 	}
 	log.Printf("LRANGE %q [%d:%d] -> %d elements", args[0], start, end, len(list))
 	return EncodeArray(list), nil
+}
+
+func (r *Redis) handleLLen(args []string) ([]byte, error) {
+	if len(args) < 1 {
+		return EncodeError("Err wrong number of arguments for 'llist' command"), nil
+	}
+
+	key := args[0]
+	length, err := r.storage.LLen(key)
+	if err != nil {
+		return EncodeError(err.Error()), nil
+	}
+	return EncodeInteger(int64(length)), nil
 }

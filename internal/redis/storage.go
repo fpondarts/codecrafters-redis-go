@@ -81,7 +81,20 @@ func (s *Storage) LPush(key string, vals ...string) (int, error) {
 	return len(r.listVal), nil
 }
 
-func (s *Storage) GetListRange(key string, start, inclusiveEnd int) ([]string, error) {
+func (s *Storage) LLen(key string) (int, error) {
+	r, ok := s.storage[key]
+	if ok && !r.isExpired() && r.vtype != listType {
+		return 0, ErrWrongType
+	}
+
+	if !ok {
+		return 0, nil
+	}
+
+	return len(r.listVal), nil
+}
+
+func (s *Storage) LRange(key string, start, inclusiveEnd int) ([]string, error) {
 	if r, ok := s.storage[key]; ok && !r.isExpired() && r.vtype != listType {
 		return []string{}, ErrWrongType
 	}

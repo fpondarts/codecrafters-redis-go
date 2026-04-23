@@ -46,6 +46,8 @@ func (r *Redis) dispatch(cmd Command) ([]byte, error) {
 		return r.handleRPush(cmd.Args)
 	case "LRANGE":
 		return r.handleLRange(cmd.Args)
+	case "LLEN":
+		return r.handleLLen(cmd.Args)
 	default:
 		log.Printf("unknown command %q", cmd.Name)
 		return EncodeError("ERR unknown command '" + cmd.Name + "'"), nil
