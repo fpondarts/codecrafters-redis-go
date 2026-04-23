@@ -75,6 +75,16 @@ func EncodeNullArray() []byte {
 	return []byte("*-1\r\n")
 }
 
+func EncodeStreamEntries(entries []StreamEntry) []byte {
+	out := []byte("*" + strconv.Itoa(len(entries)) + "\r\n")
+	for _, e := range entries {
+		out = append(out, "*2\r\n"...)
+		out = append(out, EncodeBulkString(encodeStreamId(e.MS, e.Seq))...)
+		out = append(out, EncodeArray(e.Fields)...)
+	}
+	return out
+}
+
 // ParseRESP parses a RESP-encoded buffer and returns the parsed element and
 // the number of bytes consumed.
 func ParseRESP(buf []byte) (RESPElement, int, error) {

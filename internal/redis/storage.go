@@ -20,7 +20,8 @@ const (
 )
 
 type StreamEntry struct {
-	ID     string
+	MS     uint64
+	Seq    uint64
 	Fields []string // alternating key/value pairs
 }
 
@@ -146,58 +147,125 @@ func (s *Storage) XAdd(key, id string, fields []string) (string, error) {
 	}
 	stream, _ := r.val.([]StreamEntry)
 
-	finalID, err := resolveStreamID(id, stream)
+	ms, seq, err := resolveStreamID(id, stream)
 	if err != nil {
 		return "", err
 	}
 
-	stream = append(stream, StreamEntry{ID: finalID, Fields: fields})
+	stream = append(stream, StreamEntry{MS: ms, Seq: seq, Fields: fields})
 	s.storage[key] = record{vtype: streamType, val: stream, expiration: r.expiration}
-	return finalID, nil
+	return fmt.Sprintf("%d-%d", ms, seq), nil
 }
 
-func resolveStreamID(id string, entries []StreamEntry) (string, error) {
+func (s *Storage) XRange(key, startId, endId string) ([]StreamEntry, error) {
+	r, ok, err := s.getRecord(key, streamType)
+	if err != nil {
+		return []StreamEntry{}, err
+	}
+
+	if !ok {
+		return []StreamEntry{}, err
+	}
+	stream, _ := r.val.([]StreamEntry)
+	startMs, startSeq, err := parseStreamRangeID(startId, true)
+	if err != nil {
+		return []StreamEntry{}, err
+	}
+
+	endMs, endSeq, err := parseStreamRangeID(endId, false)
+	if err != nil {
+		return []StreamEntry{}, err
+	}
+
+	result := []StreamEntry{}
+
+	if startMs > endMs || (startMs == endMs && startSeq > endSeq) {
+		return result, nil
+	}
+
+	for _, entry := range stream {
+		if entry.MS < startMs {
+			continue
+		}
+
+		if entry.MS == startMs && entry.Seq < startSeq {
+			continue
+		}
+
+		if entry.MS == startMs && entry.Seq >= startSeq {
+			if entry.MS < endMs {
+				result = append(result, entry)
+			} else if entry.MS == endMs {
+				if entry.Seq > endSeq {
+					break
+				}
+				result = append(result, entry)
+			}
+			continue
+		}
+
+		if entry.MS < endMs {
+			result = append(result, entry)
+			continue
+		}
+
+		if entry.MS == endMs {
+			if entry.Seq <= endSeq {
+				result = append(result, entry)
+			} else {
+				break
+			}
+			continue
+		}
+
+		break
+	}
+
+	return result, nil
+}
+
+func resolveStreamID(id string, entries []StreamEntry) (ms, seq uint64, err error) {
 	var lastMS, lastSeq uint64
 	if len(entries) > 0 {
-		lastMS, lastSeq, _ = parseStreamID(entries[len(entries)-1].ID)
+		last := entries[len(entries)-1]
+		lastMS, lastSeq = last.MS, last.Seq
 	}
 
 	nowMS := uint64(time.Now().UnixMilli())
 
 	switch {
 	case id == "*":
-		ms := nowMS
-		seq := uint64(0)
+		ms = nowMS
 		if ms == lastMS {
 			seq = lastSeq + 1
 		}
-		return fmt.Sprintf("%d-%d", ms, seq), nil
+		return ms, seq, nil
 
 	case strings.HasSuffix(id, "-*"):
-		ms, err := strconv.ParseUint(strings.TrimSuffix(id, "-*"), 10, 64)
+		ms, err = strconv.ParseUint(strings.TrimSuffix(id, "-*"), 10, 64)
 		if err != nil {
-			return "", fmt.Errorf("ERR Invalid stream ID")
+			return 0, 0, fmt.Errorf("ERR Invalid stream ID")
 		}
-		seq := uint64(0)
+		if ms < lastMS {
+			return 0, 0, fmt.Errorf("ERR The ID specified in XADD is equal or smaller than the target stream top item")
+		}
 		if ms == lastMS {
 			seq = lastSeq + 1
-		} else if ms < lastMS {
-			return "", fmt.Errorf("ERR The ID specified in XADD is equal or smaller than the target stream top item")
 		}
-		return fmt.Sprintf("%d-%d", ms, seq), nil
+		return ms, seq, nil
 
 	default:
-		ms, seq, err := parseStreamID(id)
+		ms, seq, err = parseStreamID(id)
 		if err != nil {
-			return "", fmt.Errorf("ERR Invalid stream ID specified as stream command argument")
+			return 0, 0, fmt.Errorf("ERR Invalid stream ID specified as stream command argument")
 		}
 		if ms == 0 && seq == 0 {
-			return "", fmt.Errorf("ERR The ID specified in XADD must be greater than 0-0")
+			return 0, 0, fmt.Errorf("ERR The ID specified in XADD must be greater than 0-0")
 		}
 		if len(entries) > 0 && (ms < lastMS || (ms == lastMS && seq <= lastSeq)) {
-			return "", fmt.Errorf("ERR The ID specified in XADD is equal or smaller than the target stream top item")
+			return 0, 0, fmt.Errorf("ERR The ID specified in XADD is equal or smaller than the target stream top item")
 		}
-		return id, nil
+		return ms, seq, nil
 	}
 }
 
@@ -212,6 +280,28 @@ func parseStreamID(id string) (ms, seq uint64, err error) {
 	}
 	seq, err = strconv.ParseUint(parts[1], 10, 64)
 	return ms, seq, err
+}
+
+func parseStreamRangeID(id string, isStart bool) (ms uint64, seq uint64, err error) {
+	if strings.Contains(id, "-") {
+		return parseStreamID(id)
+	}
+
+	ms, err = strconv.ParseUint(id, 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+	if isStart {
+		return ms, 0, nil
+	}
+
+	maxu64 := ^uint64(0)
+
+	return ms, maxu64, nil
+}
+
+func encodeStreamId(ms, seq uint64) string {
+	return fmt.Sprintf("%d-%d", ms, seq)
 }
 
 func (s *Storage) Type(key string) string {

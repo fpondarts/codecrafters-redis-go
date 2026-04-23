@@ -228,6 +228,19 @@ func (r *Redis) handleXAdd(args []string) ([]byte, error) {
 	return EncodeBulkString(resultID), nil
 }
 
+func (r *Redis) handleXRange(args []string) ([]byte, error) {
+	if len(args) < 3 {
+		return EncodeError("ERR too few arguments for 'xrange' command"), nil
+	}
+	key, start, end := args[0], args[1], args[2]
+	entries, err := r.storage.XRange(key, start, end)
+	if err != nil {
+		return EncodeError(err.Error()), nil
+	}
+	log.Printf("XRANGE %q [%s..%s] -> %d entries", key, start, end, len(entries))
+	return EncodeStreamEntries(entries), nil
+}
+
 func (r *Redis) handleType(args []string) (Response, error) {
 	if len(args) < 1 {
 		return Response{Data: EncodeError("Err too few arguments for TYPE command")}, nil
