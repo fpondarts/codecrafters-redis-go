@@ -2,6 +2,7 @@ package redis
 
 import (
 	"log"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -27,13 +28,7 @@ func (r *Redis) notifyXReadWaiters(key string) {
 		n := len(parts) / 2
 		keys, ids := parts[:n], parts[n:]
 
-		matched := false
-		for _, k := range keys {
-			if k == key {
-				matched = true
-				break
-			}
-		}
+		matched := slices.Contains(keys, key)
 		if !matched {
 			continue
 		}
@@ -95,16 +90,21 @@ func (r *Redis) handleXRead(args []string) (Response, error) {
 	n := len(rest) / 2
 	keys, ids := rest[:n], rest[n:]
 
+	waitForNewValue := blocking && slices.Contains(ids, "$")
+
 	results := make([][]StreamEntry, n)
 	hasAny := false
-	for i, key := range keys {
-		entries, err := r.storage.XRead(key, ids[i])
-		if err != nil {
-			return Response{Data: EncodeError(err.Error())}, nil
-		}
-		results[i] = entries
-		if len(entries) > 0 {
-			hasAny = true
+
+	if !waitForNewValue {
+		for i, key := range keys {
+			entries, err := r.storage.XRead(key, ids[i])
+			if err != nil {
+				return Response{Data: EncodeError(err.Error())}, nil
+			}
+			results[i] = entries
+			if len(entries) > 0 {
+				hasAny = true
+			}
 		}
 	}
 
