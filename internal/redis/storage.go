@@ -191,6 +191,9 @@ func resolveStreamID(id string, entries []StreamEntry) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("ERR Invalid stream ID specified as stream command argument")
 		}
+		if ms == 0 && seq == 0 {
+			return "", fmt.Errorf("ERR The ID specified in XADD is equal or smaller than the target stream top item")
+		}
 		if len(entries) > 0 && (ms < lastMS || (ms == lastMS && seq <= lastSeq)) {
 			return "", fmt.Errorf("ERR The ID specified in XADD is equal or smaller than the target stream top item")
 		}
