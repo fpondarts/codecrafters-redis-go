@@ -135,13 +135,26 @@ func (r *Redis) handleLPop(args []string) ([]byte, error) {
 
 	key := args[0]
 
-	popped, err := r.storage.LPop(key)
+	amount := 1
+
+	if len(args) > 1 {
+		parsedAmount, err := strconv.Atoi(args[1])
+		if err != nil {
+			return EncodeError("Err wrong option for 'lpop'"), nil
+		}
+		amount = parsedAmount
+	}
+	popped, err := r.storage.LPop(key, amount)
 	if err != nil {
 		return EncodeError(err.Error()), nil
 	}
-	if popped == "" {
+	if len(popped) == 0 {
 		return EncodeNullBulkString(), nil
 	}
 
-	return EncodeBulkString(popped), nil
+	if len(popped) == 1 {
+		return EncodeBulkString(popped[0]), nil
+	}
+
+	return EncodeArray(popped), nil
 }

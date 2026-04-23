@@ -133,20 +133,21 @@ func (s *Storage) LRange(key string, start, inclusiveEnd int) ([]string, error) 
 	return r.listVal[start : inclusiveEnd+1], nil
 }
 
-func (s *Storage) LPop(key string) (string, error) {
+func (s *Storage) LPop(key string, amount int) ([]string, error) {
 	r, ok := s.storage[key]
 	if ok && !r.isExpired() && r.vtype != listType {
-		return "", ErrWrongType
+		return []string{}, ErrWrongType
 	}
 	if !ok || r.isExpired() {
-		return "", nil
+		return []string{}, nil
 	}
 	if len(r.listVal) == 0 {
-		return "", nil
+		return []string{}, nil
 	}
 
-	popped := r.listVal[0]
-	r.listVal = r.listVal[1:]
+	safeAmount := min(amount, len(r.listVal))
+	popped := r.listVal[0:safeAmount]
+	r.listVal = r.listVal[safeAmount:]
 	s.storage[key] = r
 
 	return popped, nil
