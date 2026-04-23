@@ -127,3 +127,21 @@ func (r *Redis) handleLLen(args []string) ([]byte, error) {
 	}
 	return EncodeInteger(int64(length)), nil
 }
+
+func (r *Redis) handleLPop(args []string) ([]byte, error) {
+	if len(args) < 1 {
+		return EncodeError("Err wrong number of arguments for 'lpop' command"), nil
+	}
+
+	key := args[0]
+
+	popped, err := r.storage.LPop(key)
+	if err != nil {
+		return EncodeError(err.Error()), nil
+	}
+	if popped == "" {
+		return EncodeNullBulkString(), nil
+	}
+
+	return EncodeBulkString(popped), nil
+}
