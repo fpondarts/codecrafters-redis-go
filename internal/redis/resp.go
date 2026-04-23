@@ -79,7 +79,7 @@ func EncodeStreamEntries(entries []StreamEntry) []byte {
 	out := []byte("*" + strconv.Itoa(len(entries)) + "\r\n")
 	for _, e := range entries {
 		out = append(out, "*2\r\n"...)
-		out = append(out, EncodeBulkString(encodeStreamId(e.MS, e.Seq))...)
+		out = append(out, EncodeBulkString(encodeStreamID(e.MS, e.Seq))...)
 		out = append(out, EncodeArray(e.Fields)...)
 	}
 	return out

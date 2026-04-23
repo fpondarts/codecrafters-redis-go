@@ -157,7 +157,7 @@ func (s *Storage) XAdd(key, id string, fields []string) (string, error) {
 	return fmt.Sprintf("%d-%d", ms, seq), nil
 }
 
-func (s *Storage) XRange(key, startId, endId string) ([]StreamEntry, error) {
+func (s *Storage) XRange(key, startID, endID string) ([]StreamEntry, error) {
 	r, ok, err := s.getRecord(key, streamType)
 	if err != nil {
 		return []StreamEntry{}, err
@@ -167,12 +167,12 @@ func (s *Storage) XRange(key, startId, endId string) ([]StreamEntry, error) {
 		return []StreamEntry{}, err
 	}
 	stream, _ := r.val.([]StreamEntry)
-	startMs, startSeq, err := parseStreamRangeID(startId, true)
+	startMs, startSeq, err := parseStreamRangeID(startID, true)
 	if err != nil {
 		return []StreamEntry{}, err
 	}
 
-	endMs, endSeq, err := parseStreamRangeID(endId, false)
+	endMs, endSeq, err := parseStreamRangeID(endID, false)
 	if err != nil {
 		return []StreamEntry{}, err
 	}
@@ -286,6 +286,11 @@ func parseStreamRangeID(id string, isStart bool) (ms uint64, seq uint64, err err
 	if id == "-" {
 		return 0, 0, nil
 	}
+
+	if id == "*" {
+		maxuint := ^uint64(0)
+		return maxuint, maxuint, nil
+	}
 	if strings.Contains(id, "-") {
 		return parseStreamID(id)
 	}
@@ -303,7 +308,7 @@ func parseStreamRangeID(id string, isStart bool) (ms uint64, seq uint64, err err
 	return ms, maxu64, nil
 }
 
-func encodeStreamId(ms, seq uint64) string {
+func encodeStreamID(ms, seq uint64) string {
 	return fmt.Sprintf("%d-%d", ms, seq)
 }
 
