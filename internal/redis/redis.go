@@ -76,6 +76,8 @@ func (r *Redis) dispatch(cmd Command) (Response, error) {
 		return wrap(r.handleXAdd(cmd.Args))
 	case "XRANGE":
 		return wrap(r.handleXRange(cmd.Args))
+	case "XREAD":
+		return wrap(r.handleXRead(cmd.Args))
 	case "TYPE":
 		return r.handleType(cmd.Args)
 	default:

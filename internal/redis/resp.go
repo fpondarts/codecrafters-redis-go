@@ -75,6 +75,15 @@ func EncodeNullArray() []byte {
 	return []byte("*-1\r\n")
 }
 
+// EncodeXReadResult encodes a single-stream XREAD response:
+// *1 [ [key-bulk-string, entries-array] ]
+func EncodeXReadResult(key string, entries []StreamEntry) []byte {
+	out := []byte("*1\r\n*2\r\n")
+	out = append(out, EncodeBulkString(key)...)
+	out = append(out, EncodeStreamEntries(entries)...)
+	return out
+}
+
 func EncodeStreamEntries(entries []StreamEntry) []byte {
 	out := []byte("*" + strconv.Itoa(len(entries)) + "\r\n")
 	for _, e := range entries {

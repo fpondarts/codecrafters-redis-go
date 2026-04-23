@@ -241,6 +241,25 @@ func (r *Redis) handleXRange(args []string) ([]byte, error) {
 	return EncodeStreamEntries(entries), nil
 }
 
+func (r *Redis) handleXRead(args []string) ([]byte, error) {
+	// Syntax: XREAD STREAMS key id
+	if len(args) != 3 || strings.ToUpper(args[0]) != "STREAMS" {
+		return EncodeError("ERR syntax error"), nil
+	}
+	key := args[1]
+	id := args[2]
+
+	entries, err := r.storage.XRead(key, id)
+	if err != nil {
+		return EncodeError(err.Error()), nil
+	}
+	if len(entries) == 0 {
+		return EncodeNullArray(), nil
+	}
+	log.Printf("XREAD STREAMS %q %q -> %d entries", key, id, len(entries))
+	return EncodeXReadResult(key, entries), nil
+}
+
 func (r *Redis) handleType(args []string) (Response, error) {
 	if len(args) < 1 {
 		return Response{Data: EncodeError("Err too few arguments for TYPE command")}, nil

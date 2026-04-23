@@ -184,44 +184,47 @@ func (s *Storage) XRange(key, startID, endID string) ([]StreamEntry, error) {
 	}
 
 	for _, entry := range stream {
-		if entry.MS < startMs {
-			continue
-		}
+		afterStart := entry.MS > startMs || (entry.MS == startMs && entry.Seq >= startSeq)
+		beforeEnd := entry.MS < endMs || (entry.MS == endMs && entry.Seq <= endSeq)
 
-		if entry.MS == startMs && entry.Seq < startSeq {
-			continue
-		}
-
-		if entry.MS == startMs && entry.Seq >= startSeq {
-			if entry.MS < endMs {
-				result = append(result, entry)
-			} else if entry.MS == endMs {
-				if entry.Seq > endSeq {
-					break
-				}
-				result = append(result, entry)
-			}
-			continue
-		}
-
-		if entry.MS < endMs {
+		if afterStart && beforeEnd {
 			result = append(result, entry)
-			continue
 		}
 
-		if entry.MS == endMs {
-			if entry.Seq <= endSeq {
-				result = append(result, entry)
-			} else {
-				break
-			}
-			continue
+		if !beforeEnd {
+			break
 		}
-
-		break
 	}
 
 	return result, nil
+}
+
+func (s *Storage) XRead(key, startID string) ([]StreamEntry, error) {
+	r, ok, err := s.getRecord(key, streamType)
+	if err != nil {
+		return []StreamEntry{}, err
+	}
+
+	if !ok {
+		return []StreamEntry{}, nil
+	}
+
+	stream := r.val.([]StreamEntry)
+
+	startMs, startSeq, err := parseStreamRangeID(startID, true)
+	if err != nil {
+		return []StreamEntry{}, err
+	}
+
+	index := slices.IndexFunc(stream, func(e StreamEntry) bool {
+		return e.MS > startMs || (e.MS == startMs && e.Seq > startSeq)
+	})
+
+	if index == -1 {
+		return []StreamEntry{}, nil
+	}
+
+	return stream[index:], nil
 }
 
 func resolveStreamID(id string, entries []StreamEntry) (ms, seq uint64, err error) {
