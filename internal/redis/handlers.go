@@ -1,7 +1,6 @@
 package redis
 
 import (
-	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -77,6 +76,7 @@ func (r *Redis) handleRPush(args []string) ([]byte, error) {
 	if err != nil {
 		return EncodeError(err.Error()), nil
 	}
+	r.notifyWaiters(key)
 	return EncodeInteger(int64(n)), nil
 }
 
@@ -84,20 +84,44 @@ func (r *Redis) handleLPush(args []string) ([]byte, error) {
 	if len(args) < 2 {
 		return EncodeError("ERR wrong number of arguments for 'lpush' command"), nil
 	}
-
 	key, vals := args[0], args[1:]
 	log.Printf("LPUSH %q %v", key, vals)
 	n, err := r.storage.LPush(key, vals...)
 	if err != nil {
 		return EncodeError(err.Error()), nil
 	}
-
+	r.notifyWaiters(key)
 	return EncodeInteger(int64(n)), nil
+}
+
+// notifyWaiters pops one element for the first unserved waiter on key.
+// Called from handleLPush/handleRPush after a successful push.
+// Only runs in the EventLoop goroutine so no locking is needed.
+func (r *Redis) notifyWaiters(key string) {
+	for len(r.waiters[key]) > 0 {
+		w := r.waiters[key][0]
+		r.waiters[key] = r.waiters[key][1:]
+
+		if !w.claimed.CompareAndSwap(false, true) {
+			continue // timeout goroutine already claimed this waiter
+		}
+
+		popped, _ := r.storage.LPop(key, 1)
+		if len(popped) == 0 {
+			break
+		}
+		w.ch <- EncodeArray([]string{key, popped[0]})
+		log.Printf("notified BLPOP waiter for %q -> %q", key, popped[0])
+		return
+	}
+	if len(r.waiters[key]) == 0 {
+		delete(r.waiters, key)
+	}
 }
 
 func (r *Redis) handleLRange(args []string) ([]byte, error) {
 	if len(args) != 3 {
-		return EncodeError(fmt.Sprintf("ERR wrong number of arguments for 'lrange' command")), nil
+		return EncodeError("ERR wrong number of arguments for 'lrange' command"), nil
 	}
 	start, err := strconv.Atoi(args[1])
 	if err != nil {
@@ -117,11 +141,9 @@ func (r *Redis) handleLRange(args []string) ([]byte, error) {
 
 func (r *Redis) handleLLen(args []string) ([]byte, error) {
 	if len(args) < 1 {
-		return EncodeError("Err wrong number of arguments for 'llist' command"), nil
+		return EncodeError("ERR wrong number of arguments for 'llen' command"), nil
 	}
-
-	key := args[0]
-	length, err := r.storage.LLen(key)
+	length, err := r.storage.LLen(args[0])
 	if err != nil {
 		return EncodeError(err.Error()), nil
 	}
@@ -130,17 +152,14 @@ func (r *Redis) handleLLen(args []string) ([]byte, error) {
 
 func (r *Redis) handleLPop(args []string) ([]byte, error) {
 	if len(args) < 1 {
-		return EncodeError("Err wrong number of arguments for 'lpop' command"), nil
+		return EncodeError("ERR wrong number of arguments for 'lpop' command"), nil
 	}
-
 	key := args[0]
-
 	amount := 1
-
 	if len(args) > 1 {
 		parsedAmount, err := strconv.Atoi(args[1])
 		if err != nil {
-			return EncodeError("Err wrong option for 'lpop'"), nil
+			return EncodeError("ERR value is not an integer or out of range"), nil
 		}
 		amount = parsedAmount
 	}
@@ -151,10 +170,47 @@ func (r *Redis) handleLPop(args []string) ([]byte, error) {
 	if len(popped) == 0 {
 		return EncodeNullBulkString(), nil
 	}
-
 	if len(popped) == 1 {
 		return EncodeBulkString(popped[0]), nil
 	}
-
 	return EncodeArray(popped), nil
+}
+
+func (r *Redis) handleBLPop(args []string) (Response, error) {
+	if len(args) < 1 {
+		return Response{Data: EncodeError("ERR wrong number of arguments for 'blpop' command")}, nil
+	}
+	key := args[0]
+	timeoutSecs := 0
+	if len(args) > 1 {
+		parsedTimeout, err := strconv.Atoi(args[1])
+		if err != nil {
+			return Response{Data: EncodeError("ERR timeout is not an integer or out of range")}, nil
+		}
+		timeoutSecs = parsedTimeout
+	}
+
+	// Try immediate pop first — no need to block if element is already there
+	if popped, _ := r.storage.LPop(key, 1); len(popped) > 0 {
+		log.Printf("BLPOP %q -> immediate %q", key, popped[0])
+		return Response{Data: EncodeArray([]string{key, popped[0]})}, nil
+	}
+
+	// Register waiter in FIFO order
+	w := &waiter{ch: make(chan []byte, 1)}
+	r.waiters[key] = append(r.waiters[key], w)
+	log.Printf("BLPOP %q -> blocking (timeout=%ds)", key, timeoutSecs)
+
+	// Timeout goroutine: races with notifyWaiters via CAS.
+	// Only the winner writes to w.ch, guaranteeing exactly one write.
+	if timeoutSecs > 0 {
+		go func() {
+			time.Sleep(time.Duration(timeoutSecs) * time.Second)
+			if w.claimed.CompareAndSwap(false, true) {
+				w.ch <- EncodeNullBulkString()
+			}
+		}()
+	}
+
+	return Response{Pending: w.ch}, nil
 }

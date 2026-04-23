@@ -21,7 +21,7 @@ type TCPServer struct {
 	Clients    map[net.Conn]struct{}
 	ClientsMtx sync.Mutex
 	EventQueue chan Event
-	HandleFunc func([]byte) ([]byte, error)
+	HandleFunc func([]byte) (redis.Response, error)
 }
 
 func (server *TCPServer) HandleConnection(conn net.Conn) {
@@ -64,7 +64,18 @@ func (server *TCPServer) EventLoop() {
 			event.Result <- err
 			continue
 		}
-		_, werr := event.Conn.Write(resp)
+		if resp.Pending != nil {
+			go func(e Event, pending <-chan []byte) {
+				data := <-pending
+				_, werr := e.Conn.Write(data)
+				if werr != nil {
+					log.Printf("write error to %s: %v", e.Conn.RemoteAddr(), werr)
+				}
+				e.Result <- werr
+			}(event, resp.Pending)
+			continue
+		}
+		_, werr := event.Conn.Write(resp.Data)
 		if werr != nil {
 			log.Printf("write error to %s: %v", event.Conn.RemoteAddr(), werr)
 		}
@@ -90,7 +101,7 @@ type ServerConfig struct {
 	Port int
 }
 
-func NewTCPServer(config ServerConfig, handleFunc func([]byte) ([]byte, error)) (*TCPServer, error) {
+func NewTCPServer(config ServerConfig, handleFunc func([]byte) (redis.Response, error)) (*TCPServer, error) {
 	addr := &net.TCPAddr{
 		IP:   config.IP,
 		Port: config.Port,
