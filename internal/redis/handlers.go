@@ -215,6 +215,19 @@ func (r *Redis) handleBLPop(args []string) (Response, error) {
 	return Response{Pending: w.ch}, nil
 }
 
+func (r *Redis) handleXAdd(args []string) ([]byte, error) {
+	if len(args) < 4 || (len(args)-2)%2 != 0 {
+		return EncodeError("ERR wrong number of arguments for 'xadd' command"), nil
+	}
+	key, id, fields := args[0], args[1], args[2:]
+	resultID, err := r.storage.XAdd(key, id, fields)
+	if err != nil {
+		return EncodeError(err.Error()), nil
+	}
+	log.Printf("XADD %q %q -> %q", key, id, resultID)
+	return EncodeBulkString(resultID), nil
+}
+
 func (r *Redis) handleType(args []string) (Response, error) {
 	if len(args) < 1 {
 		return Response{Data: EncodeError("Err too few arguments for TYPE command")}, nil
