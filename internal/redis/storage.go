@@ -146,8 +146,8 @@ func (s *Storage) LPop(key string) (string, error) {
 	}
 
 	popped := r.listVal[0]
-
 	r.listVal = r.listVal[1:]
+	s.storage[key] = r
 
 	return popped, nil
 }
