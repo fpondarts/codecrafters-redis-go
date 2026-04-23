@@ -181,11 +181,11 @@ func (r *Redis) handleBLPop(args []string) (Response, error) {
 		return Response{Data: EncodeError("ERR wrong number of arguments for 'blpop' command")}, nil
 	}
 	key := args[0]
-	timeoutSecs := 0
+	timeoutSecs := 0.0
 	if len(args) > 1 {
-		parsedTimeout, err := strconv.Atoi(args[1])
-		if err != nil {
-			return Response{Data: EncodeError("ERR timeout is not an integer or out of range")}, nil
+		parsedTimeout, err := strconv.ParseFloat(args[1], 64)
+		if err != nil || parsedTimeout < 0 {
+			return Response{Data: EncodeError("ERR timeout is not a float or out of range")}, nil
 		}
 		timeoutSecs = parsedTimeout
 	}
@@ -199,13 +199,13 @@ func (r *Redis) handleBLPop(args []string) (Response, error) {
 	// Register waiter in FIFO order
 	w := &waiter{ch: make(chan []byte, 1)}
 	r.waiters[key] = append(r.waiters[key], w)
-	log.Printf("BLPOP %q -> blocking (timeout=%ds)", key, timeoutSecs)
+	log.Printf("BLPOP %q -> blocking (timeout=%.3fs)", key, timeoutSecs)
 
 	// Timeout goroutine: races with notifyWaiters via CAS.
 	// Only the winner writes to w.ch, guaranteeing exactly one write.
 	if timeoutSecs > 0 {
 		go func() {
-			time.Sleep(time.Duration(timeoutSecs) * time.Second)
+			time.Sleep(time.Duration(timeoutSecs * float64(time.Second)))
 			if w.claimed.CompareAndSwap(false, true) {
 				w.ch <- EncodeNullArray()
 			}
