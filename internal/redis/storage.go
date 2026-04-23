@@ -342,3 +342,32 @@ func (s *Storage) Type(key string) string {
 		return "string"
 	}
 }
+
+func (s *Storage) Increment(key string) (int, error) {
+	r, ok, err := s.getRecord(key, stringType)
+	if err != nil {
+		return 0, err
+	}
+
+	if !ok {
+		r.val = "1"
+		r.vtype = stringType
+		s.storage[key] = r
+
+		return 1, nil
+	}
+
+	strValue, _ := r.val.(string)
+
+	intValue, err := strconv.Atoi(strValue)
+	if err != nil {
+		return 0, err
+	}
+
+	incr := intValue + 1
+
+	r.val = strconv.Itoa(incr)
+	s.storage[key] = r
+
+	return incr, nil
+}

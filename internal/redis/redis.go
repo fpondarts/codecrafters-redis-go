@@ -61,6 +61,8 @@ func (r *Redis) dispatch(cmd Command) (Response, error) {
 		return wrap(r.handleSet(cmd.Args))
 	case "GET":
 		return wrap(r.handleGet(cmd.Args))
+	case "INCR":
+		return wrap(r.handleIncr(cmd.Args))
 	case "LPUSH":
 		return wrap(r.handleLPush(cmd.Args))
 	case "RPUSH":

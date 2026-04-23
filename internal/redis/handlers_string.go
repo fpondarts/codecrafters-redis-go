@@ -52,3 +52,16 @@ func (r *Redis) handleGet(args []string) ([]byte, error) {
 	log.Printf("GET %q -> %q", args[0], val)
 	return EncodeBulkString(val), nil
 }
+
+func (r *Redis) handleIncr(args []string) ([]byte, error) {
+	if len(args) < 1 {
+		return EncodeError("Err too few arguments for 'incr' command"), nil
+	}
+
+	incr, err := r.storage.Increment(args[0])
+	if err != nil {
+		return EncodeError(err.Error()), nil
+	}
+
+	return EncodeInteger(int64(incr)), nil
+}
