@@ -227,6 +227,19 @@ func (s *Storage) XRead(key, startID string) ([]StreamEntry, error) {
 	return stream[index:], nil
 }
 
+func (s *Storage) GetLastEntry(streamKey string) (StreamEntry, error) {
+	r, ok, err := s.getRecord(streamKey, streamType)
+	if err != nil {
+		return StreamEntry{}, err
+	}
+
+	if !ok {
+		return StreamEntry{}, nil
+	}
+	stream := r.val.([]StreamEntry)
+	return stream[len(stream)-1], nil
+}
+
 func resolveStreamID(id string, entries []StreamEntry) (ms, seq uint64, err error) {
 	var lastMS, lastSeq uint64
 	if len(entries) > 0 {

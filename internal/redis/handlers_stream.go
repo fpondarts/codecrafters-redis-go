@@ -90,21 +90,30 @@ func (r *Redis) handleXRead(args []string) (Response, error) {
 	n := len(rest) / 2
 	keys, ids := rest[:n], rest[n:]
 
-	waitForNewValue := blocking && slices.Contains(ids, "$")
-
 	results := make([][]StreamEntry, n)
 	hasAny := false
 
-	if !waitForNewValue {
-		for i, key := range keys {
-			entries, err := r.storage.XRead(key, ids[i])
-			if err != nil {
-				return Response{Data: EncodeError(err.Error())}, nil
-			}
-			results[i] = entries
-			if len(entries) > 0 {
-				hasAny = true
-			}
+	for i, id := range ids {
+		if id != "$" {
+			continue
+		}
+
+		entry, err := r.storage.GetLastEntry(keys[i])
+		if err != nil {
+			return Response{Data: EncodeError(err.Error())}, nil
+		}
+
+		ids[i] = encodeStreamID(entry.MS, entry.Seq)
+	}
+
+	for i, key := range keys {
+		entries, err := r.storage.XRead(key, ids[i])
+		if err != nil {
+			return Response{Data: EncodeError(err.Error())}, nil
+		}
+		results[i] = entries
+		if len(entries) > 0 {
+			hasAny = true
 		}
 	}
 
