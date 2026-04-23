@@ -242,22 +242,34 @@ func (r *Redis) handleXRange(args []string) ([]byte, error) {
 }
 
 func (r *Redis) handleXRead(args []string) ([]byte, error) {
-	// Syntax: XREAD STREAMS key id
-	if len(args) != 3 || strings.ToUpper(args[0]) != "STREAMS" {
+	// Syntax: XREAD STREAMS key1 key2 ... keyN id1 id2 ... idN
+	if len(args) < 3 || strings.ToUpper(args[0]) != "STREAMS" {
 		return EncodeError("ERR syntax error"), nil
 	}
-	key := args[1]
-	id := args[2]
-
-	entries, err := r.storage.XRead(key, id)
-	if err != nil {
-		return EncodeError(err.Error()), nil
+	rest := args[1:]
+	if len(rest)%2 != 0 {
+		return EncodeError("ERR syntax error"), nil
 	}
-	if len(entries) == 0 {
+	n := len(rest) / 2
+	keys, ids := rest[:n], rest[n:]
+
+	results := make([][]StreamEntry, n)
+	hasAny := false
+	for i, key := range keys {
+		entries, err := r.storage.XRead(key, ids[i])
+		if err != nil {
+			return EncodeError(err.Error()), nil
+		}
+		results[i] = entries
+		if len(entries) > 0 {
+			hasAny = true
+		}
+	}
+	if !hasAny {
 		return EncodeNullArray(), nil
 	}
-	log.Printf("XREAD STREAMS %q %q -> %d entries", key, id, len(entries))
-	return EncodeXReadResult(key, entries), nil
+	log.Printf("XREAD STREAMS %v %v", keys, ids)
+	return EncodeXReadResults(keys, results), nil
 }
 
 func (r *Redis) handleType(args []string) (Response, error) {
