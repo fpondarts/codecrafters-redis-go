@@ -130,3 +130,16 @@ func (s *Storage) LPop(key string, amount int) ([]string, error) {
 	return popped, nil
 }
 
+func (s *Storage) Type(key string) string {
+	r, ok := s.storage[key]
+
+	if !ok || r.isExpired() {
+		return ""
+	}
+
+	if r.vtype == listType {
+		return "list"
+	}
+
+	return "string"
+}

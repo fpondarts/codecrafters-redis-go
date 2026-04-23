@@ -72,6 +72,8 @@ func (r *Redis) dispatch(cmd Command) (Response, error) {
 		return wrap(r.handleLPop(cmd.Args))
 	case "BLPOP":
 		return r.handleBLPop(cmd.Args)
+	case "TYPE":
+		return r.handleType(cmd.Args)
 	default:
 		log.Printf("unknown command %q", cmd.Name)
 		return wrap(EncodeError("ERR unknown command '"+cmd.Name+"'"), nil)
