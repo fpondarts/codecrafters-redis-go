@@ -71,6 +71,10 @@ func EncodeNullBulkString() []byte {
 	return []byte("$-1\r\n")
 }
 
+func EncodeNullArray() []byte {
+	return []byte("*-1\r\n")
+}
+
 // ParseRESP parses a RESP-encoded buffer and returns the parsed element and
 // the number of bytes consumed.
 func ParseRESP(buf []byte) (RESPElement, int, error) {

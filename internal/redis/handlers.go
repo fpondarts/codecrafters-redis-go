@@ -207,7 +207,7 @@ func (r *Redis) handleBLPop(args []string) (Response, error) {
 		go func() {
 			time.Sleep(time.Duration(timeoutSecs) * time.Second)
 			if w.claimed.CompareAndSwap(false, true) {
-				w.ch <- EncodeNullBulkString()
+				w.ch <- EncodeNullArray()
 			}
 		}()
 	}
