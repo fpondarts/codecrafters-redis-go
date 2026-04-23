@@ -283,6 +283,9 @@ func parseStreamID(id string) (ms, seq uint64, err error) {
 }
 
 func parseStreamRangeID(id string, isStart bool) (ms uint64, seq uint64, err error) {
+	if id == "-" {
+		return 0, 0, nil
+	}
 	if strings.Contains(id, "-") {
 		return parseStreamID(id)
 	}
