@@ -48,7 +48,7 @@ func (r *Redis) dispatch(cmd Command) ([]byte, error) {
 		return r.handleLRange(cmd.Args)
 	case "LLEN":
 		return r.handleLLen(cmd.Args)
-	case "LLPOP":
+	case "LPOP":
 		return r.handleLPop(cmd.Args)
 	default:
 		log.Printf("unknown command %q", cmd.Name)
