@@ -287,7 +287,7 @@ func parseStreamRangeID(id string, isStart bool) (ms uint64, seq uint64, err err
 		return 0, 0, nil
 	}
 
-	if id == "*" {
+	if id == "+" {
 		maxuint := ^uint64(0)
 		return maxuint, maxuint, nil
 	}
