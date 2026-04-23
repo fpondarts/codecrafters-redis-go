@@ -231,26 +231,32 @@ func (r *Redis) handleXAdd(args []string) ([]byte, error) {
 
 func (r *Redis) notifyXReadWaiters(key string) {
 	for waiterKey, waiters := range r.waitersXREAD {
-		if strings.Contains(waiterKey, key) {
-			for _, waiter := range waiters {
-				if !waiter.claimed.CompareAndSwap(false, true) {
-					continue
-				}
-				parts := strings.Split(waiterKey, ",")
-				n := len(parts) / 2
-				keys, ids := parts[:n], parts[n:]
+		parts := strings.Split(waiterKey, ",")
+		n := len(parts) / 2
+		keys, ids := parts[:n], parts[n:]
 
-				results := [][]StreamEntry{}
-
-				for i, key := range keys {
-					r, _ := r.storage.XRead(key, ids[i])
-					results = append(results, r)
-				}
-
-				waiter.ch <- EncodeXReadResults(keys, results)
+		matched := false
+		for _, k := range keys {
+			if k == key {
+				matched = true
+				break
 			}
-			delete(r.waitersXREAD, waiterKey)
 		}
+		if !matched {
+			continue
+		}
+
+		for _, waiter := range waiters {
+			if !waiter.claimed.CompareAndSwap(false, true) {
+				continue
+			}
+			results := make([][]StreamEntry, n)
+			for i, k := range keys {
+				results[i], _ = r.storage.XRead(k, ids[i])
+			}
+			waiter.ch <- EncodeXReadResults(keys, results)
+		}
+		delete(r.waitersXREAD, waiterKey)
 	}
 }
 
@@ -323,12 +329,14 @@ func (r *Redis) handleXRead(args []string) (Response, error) {
 	waiter := &waiter{ch: make(chan []byte, 1)}
 	r.waitersXREAD[xreadWaiterKey] = append(r.waitersXREAD[xreadWaiterKey], waiter)
 
-	go func() {
-		time.Sleep(time.Duration(blockingMS * int(time.Millisecond)))
-		if !waiter.claimed.CompareAndSwap(false, true) {
-			waiter.ch <- EncodeNullArray()
-		}
-	}()
+	if blockingMS > 0 {
+		go func() {
+			time.Sleep(time.Duration(blockingMS) * time.Millisecond)
+			if waiter.claimed.CompareAndSwap(false, true) {
+				waiter.ch <- EncodeNullArray()
+			}
+		}()
+	}
 	return Response{Pending: waiter.ch}, nil
 }
 
