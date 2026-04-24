@@ -171,7 +171,7 @@ func main() {
 
 		masterNode = &redis.MasterNode{IP: parsedIP[0], Port: parsedPort}
 	}
-	redisConfig := redis.RedisConfig{Master: masterNode}
+	redisConfig := redis.RedisConfig{Master: masterNode, Port: port}
 	fmt.Println("Logs from your program will appear here!")
 	r := redis.NewRedis(redisConfig)
 

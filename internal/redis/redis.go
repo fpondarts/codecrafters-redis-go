@@ -35,6 +35,7 @@ type MasterNode struct {
 }
 type RedisConfig struct {
 	Master *MasterNode
+	Port   int
 }
 
 type Redis struct {
