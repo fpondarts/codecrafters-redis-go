@@ -9,6 +9,20 @@ import (
 	"sync/atomic"
 )
 
+var writeCommands = map[string]struct{}{
+	"SET":   {},
+	"INCR":  {},
+	"LPUSH": {},
+	"RPUSH": {},
+	"LPOP":  {},
+	"XADD":  {},
+}
+
+func isWriteCommand(name string) bool {
+	_, ok := writeCommands[name]
+	return ok
+}
+
 // Response is returned by Handle. For most commands Data is populated immediately.
 // For blocking commands (BLPOP), Pending is set instead and the caller should wait
 // on the channel for the response bytes.
@@ -107,6 +121,9 @@ func (r *Redis) Handle(connID uint64, buf []byte) (Response, error) {
 	}
 	log.Printf("dispatching command %q args=%v", cmd.Name, cmd.Args)
 
+	if isWriteCommand(cmd.Name) {
+		r.propagateToReplicas(buf)
+	}
 	if tx, inTx := r.transactions[connID]; inTx {
 		switch cmd.Name {
 		case "DISCARD":

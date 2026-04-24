@@ -3,6 +3,7 @@ package redis
 import (
 	"encoding/hex"
 	"fmt"
+	"log"
 	"net"
 	"strconv"
 )
@@ -89,9 +90,11 @@ func expectSimpleString(conn *net.TCPConn, expected string) error {
 	return nil
 }
 
-func sendRDBFile(conn *net.TCPConn) error {
-	if _, err := conn.Write([]byte("+$0\r\n")); err != nil {
-		return err
+func (r *Redis) propagateToReplicas(cmd []byte) {
+	for connID, conn := range r.replicaConns {
+		_, err := conn.Write(cmd)
+		if err != nil {
+			log.Println("Failed to replicate to connID: ", connID)
+		}
 	}
-	return nil
 }
