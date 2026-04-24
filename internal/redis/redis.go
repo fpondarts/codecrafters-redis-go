@@ -8,6 +8,7 @@ import (
 	mathrand "math/rand"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 )
 
@@ -61,11 +62,13 @@ type Redis struct {
 	waitersBLPOP  map[string][]*waiter   // key -> FIFO list of blocked clients
 	waitersXREAD  map[string][]*waiter
 	config        RedisConfig
-	replicationID string              // 40-char hex, generated once at startup
-	connMap       map[uint64]net.Conn // connID -> connection
-	replicaConns  map[uint64]net.Conn // connID -> replica connections
-	masterConn    *net.TCPConn
-	masterReader  *bufio.Reader
+	replicationID    string              // 40-char hex, generated once at startup
+	connMap          map[uint64]net.Conn
+	connMapMu        sync.RWMutex
+	replicaConns     map[uint64]net.Conn
+	replicaConnsMu   sync.RWMutex
+	masterConn       *net.TCPConn
+	masterReader     *bufio.Reader
 }
 
 func NewRedis(config RedisConfig) *Redis {
@@ -104,13 +107,21 @@ func generateReplID() string {
 }
 
 func (r *Redis) OnConnect(connID uint64, conn net.Conn) {
+	r.connMapMu.Lock()
 	r.connMap[connID] = conn
+	r.connMapMu.Unlock()
 }
 
 func (r *Redis) OnDisconnect(connID uint64) {
 	delete(r.transactions, connID)
+
+	r.connMapMu.Lock()
 	delete(r.connMap, connID)
+	r.connMapMu.Unlock()
+
+	r.replicaConnsMu.Lock()
 	delete(r.replicaConns, connID)
+	r.replicaConnsMu.Unlock()
 }
 
 func (r *Redis) isReplica() bool {

@@ -95,6 +95,8 @@ func expectSimpleString(br *bufio.Reader, expected string) error {
 }
 
 func (r *Redis) propagateToReplicas(buf []byte) {
+	r.replicaConnsMu.RLock()
+	defer r.replicaConnsMu.RUnlock()
 	for connID, conn := range r.replicaConns {
 		if _, err := conn.Write(buf); err != nil {
 			log.Println("Failed to replicate to connID: ", connID)
