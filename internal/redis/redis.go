@@ -102,6 +102,8 @@ func (r *Redis) dispatch(connID uint64, cmd Command) (Response, error) {
 		return wrap(r.handleGet(cmd.Args))
 	case "INCR":
 		return wrap(r.handleIncr(cmd.Args))
+	case "INFO":
+		return wrap(r.handleInfo())
 	case "LLEN":
 		return wrap(r.handleLLen(cmd.Args))
 	case "LPOP":
