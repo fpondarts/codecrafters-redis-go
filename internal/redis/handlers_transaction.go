@@ -3,14 +3,14 @@ package redis
 import "log"
 
 func (r *Redis) handleMulti(connID uint64) ([]byte, error) {
-	r.queue[connID] = []Command{}
+	r.transactions[connID] = transaction{connID: connID, commands: []Command{}, watchedKeys: []string{}}
 	log.Printf("MULTI connID=%d", connID)
 	return EncodeSimpleString("OK"), nil
 }
 
 func (r *Redis) handleExec(connID uint64) (Response, error) {
-	cmds := r.queue[connID]
-	delete(r.queue, connID)
+	cmds := r.transactions[connID].commands
+	delete(r.transactions, connID)
 	log.Printf("EXEC connID=%d, %d commands", connID, len(cmds))
 
 	responses := make([][]byte, len(cmds))
@@ -25,11 +25,23 @@ func (r *Redis) handleExec(connID uint64) (Response, error) {
 }
 
 func (r *Redis) handleDiscard(connID uint64) ([]byte, error) {
-	_, isTx := r.queue[connID]
+	_, isTx := r.transactions[connID]
 	if !isTx {
 		return EncodeError("ERR DISCARD without MULTI"), nil
 	}
-	delete(r.queue, connID)
+	delete(r.transactions, connID)
 
+	return EncodeSimpleString("OK"), nil
+}
+
+func (r *Redis) handleWatch(connID uint64, args []string) ([]byte, error) {
+	tx, isTx := r.transactions[connID]
+
+	if !isTx {
+		return EncodeError("ERR WATCH without MULTI"), nil
+	}
+
+	tx.watchedKeys = append(tx.watchedKeys, args...)
+	r.transactions[connID] = tx
 	return EncodeSimpleString("OK"), nil
 }

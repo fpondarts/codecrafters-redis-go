@@ -13,6 +13,11 @@ type Response struct {
 	Pending <-chan []byte
 }
 
+type transaction struct {
+	connID      uint64
+	commands    []Command
+	watchedKeys []string
+}
 type waiter struct {
 	ch      chan []byte
 	claimed atomic.Bool // CAS to claim; whoever wins is the sole writer to ch
@@ -20,22 +25,22 @@ type waiter struct {
 
 type Redis struct {
 	storage      *Storage
-	queue        map[uint64][]Command // connID -> queued commands (key present = in MULTI)
-	waitersBLPOP map[string][]*waiter // key -> FIFO list of blocked clients
+	transactions map[uint64]transaction // connID -> queued commands (key present = in MULTI)
+	waitersBLPOP map[string][]*waiter   // key -> FIFO list of blocked clients
 	waitersXREAD map[string][]*waiter
 }
 
 func NewRedis() *Redis {
 	return &Redis{
 		storage:      NewStorage(),
-		queue:        make(map[uint64][]Command),
+		transactions: make(map[uint64]transaction),
 		waitersBLPOP: make(map[string][]*waiter),
 		waitersXREAD: make(map[string][]*waiter),
 	}
 }
 
 func (r *Redis) OnDisconnect(connID uint64) {
-	delete(r.queue, connID)
+	delete(r.transactions, connID)
 }
 
 // Handle is the single entry point for the TCP server. It parses buf as a RESP
@@ -55,7 +60,7 @@ func (r *Redis) Handle(connID uint64, buf []byte) (Response, error) {
 	}
 	log.Printf("dispatching command %q args=%v", cmd.Name, cmd.Args)
 
-	if _, inTx := r.queue[connID]; inTx {
+	if tx, inTx := r.transactions[connID]; inTx {
 		switch cmd.Name {
 		case "EXEC":
 			return r.handleExec(connID)
@@ -64,7 +69,8 @@ func (r *Redis) Handle(connID uint64, buf []byte) (Response, error) {
 		case "DISCARD":
 			return wrap(r.handleDiscard(connID))
 		default:
-			r.queue[connID] = append(r.queue[connID], cmd)
+			tx.commands = append(tx.commands, cmd)
+			r.transactions[connID] = tx
 			return wrap(EncodeSimpleString("QUEUED"), nil)
 		}
 	}
@@ -78,42 +84,44 @@ func wrap(data []byte, err error) (Response, error) {
 
 func (r *Redis) dispatch(connID uint64, cmd Command) (Response, error) {
 	switch cmd.Name {
-	case "PING":
-		return wrap(r.handlePing())
+	case "BLPOP":
+		return r.handleBLPop(cmd.Args)
 	case "DISCARD":
 		return wrap(EncodeError("ERR DISCARD without MULTI"), nil)
 	case "ECHO":
 		return wrap(r.handleEcho(cmd.Args))
-	case "SET":
-		return wrap(r.handleSet(cmd.Args))
+	case "EXEC":
+		return wrap(EncodeError("ERR EXEC without MULTI"), nil)
 	case "GET":
 		return wrap(r.handleGet(cmd.Args))
 	case "INCR":
 		return wrap(r.handleIncr(cmd.Args))
-	case "LPUSH":
-		return wrap(r.handleLPush(cmd.Args))
-	case "RPUSH":
-		return wrap(r.handleRPush(cmd.Args))
-	case "LRANGE":
-		return wrap(r.handleLRange(cmd.Args))
 	case "LLEN":
 		return wrap(r.handleLLen(cmd.Args))
 	case "LPOP":
 		return wrap(r.handleLPop(cmd.Args))
+	case "LPUSH":
+		return wrap(r.handleLPush(cmd.Args))
+	case "LRANGE":
+		return wrap(r.handleLRange(cmd.Args))
 	case "MULTI":
 		return wrap(r.handleMulti(connID))
-	case "EXEC":
-		return wrap(EncodeError("ERR EXEC without MULTI"), nil)
-	case "BLPOP":
-		return r.handleBLPop(cmd.Args)
+	case "PING":
+		return wrap(r.handlePing())
+	case "RPUSH":
+		return wrap(r.handleRPush(cmd.Args))
+	case "SET":
+		return wrap(r.handleSet(cmd.Args))
+	case "TYPE":
+		return r.handleType(cmd.Args)
+	case "WATCH":
+		return wrap(r.handleWatch(connID, cmd.Args))
 	case "XADD":
 		return wrap(r.handleXAdd(cmd.Args))
 	case "XRANGE":
 		return wrap(r.handleXRange(cmd.Args))
 	case "XREAD":
 		return r.handleXRead(cmd.Args)
-	case "TYPE":
-		return r.handleType(cmd.Args)
 	default:
 		log.Printf("unknown command %q", cmd.Name)
 		return wrap(EncodeError("ERR unknown command '"+cmd.Name+"'"), nil)
