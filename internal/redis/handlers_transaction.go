@@ -1,6 +1,9 @@
 package redis
 
-import "log"
+import (
+	"log"
+	"slices"
+)
 
 func (r *Redis) handleMulti(connID uint64) ([]byte, error) {
 	tx, isTx := r.transactions[connID]
@@ -73,12 +76,9 @@ func (r *Redis) handleWatch(connID uint64, args []string) ([]byte, error) {
 
 func (r *Redis) invalidateWatchers(key string) {
 	for connID, tx := range r.transactions {
-		for _, k := range tx.watchedKeys {
-			if k == key {
-				tx.dirty = true
-				r.transactions[connID] = tx
-				break
-			}
+		if slices.Contains(tx.watchedKeys, key) {
+			tx.dirty = true
+			r.transactions[connID] = tx
 		}
 	}
 }
