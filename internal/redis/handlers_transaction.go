@@ -35,11 +35,11 @@ func (r *Redis) handleDiscard(connID uint64) ([]byte, error) {
 }
 
 func (r *Redis) handleWatch(connID uint64, args []string) ([]byte, error) {
-	tx, isTx := r.transactions[connID]
+	tx, _ := r.transactions[connID]
 
-	if !isTx {
-		return EncodeError("ERR WATCH without MULTI"), nil
-	}
+	// if !isTx {
+	// 	return EncodeError("ERR WATCH without MULTI"), nil
+	// }
 
 	tx.watchedKeys = append(tx.watchedKeys, args...)
 	r.transactions[connID] = tx
