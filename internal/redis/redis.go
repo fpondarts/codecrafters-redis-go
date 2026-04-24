@@ -61,6 +61,8 @@ func (r *Redis) Handle(connID uint64, buf []byte) (Response, error) {
 			return r.handleExec(connID)
 		case "MULTI":
 			return wrap(EncodeError("ERR MULTI calls can not be nested"), nil)
+		case "DISCARD":
+			return wrap(r.handleDiscard(connID))
 		default:
 			r.queue[connID] = append(r.queue[connID], cmd)
 			return wrap(EncodeSimpleString("QUEUED"), nil)
@@ -78,6 +80,8 @@ func (r *Redis) dispatch(connID uint64, cmd Command) (Response, error) {
 	switch cmd.Name {
 	case "PING":
 		return wrap(r.handlePing())
+	case "DISCARD":
+		return wrap(EncodeError("Err DISCARD without MULTI"), nil)
 	case "ECHO":
 		return wrap(r.handleEcho(cmd.Args))
 	case "SET":

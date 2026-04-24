@@ -23,3 +23,13 @@ func (r *Redis) handleExec(connID uint64) (Response, error) {
 	}
 	return wrap(EncodeResponses(responses), nil)
 }
+
+func (r *Redis) handleDiscard(connID uint64) ([]byte, error) {
+	_, isTx := r.queue[connID]
+	if !isTx {
+		return EncodeError("Err DISCARD without MULTI"), nil
+	}
+	delete(r.queue, connID)
+
+	return EncodeSimpleString("OK"), nil
+}
