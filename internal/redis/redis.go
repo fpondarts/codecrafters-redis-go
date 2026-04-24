@@ -17,6 +17,7 @@ type transaction struct {
 	connID      uint64
 	commands    []Command
 	watchedKeys []string
+	multiCalled bool
 }
 type waiter struct {
 	ch      chan []byte

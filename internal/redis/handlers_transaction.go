@@ -3,7 +3,20 @@ package redis
 import "log"
 
 func (r *Redis) handleMulti(connID uint64) ([]byte, error) {
-	r.transactions[connID] = transaction{connID: connID, commands: []Command{}, watchedKeys: []string{}}
+	tx, isTx := r.transactions[connID]
+
+	if !isTx {
+		r.transactions[connID] = transaction{connID: connID, commands: []Command{}, watchedKeys: []string{}, multiCalled: true}
+		return EncodeSimpleString("OK"), nil
+	}
+
+	if tx.multiCalled {
+		return EncodeError("ERR MULTI calls can not be nested"), nil
+	}
+
+	tx.multiCalled = true
+	r.transactions[connID] = tx
+
 	log.Printf("MULTI connID=%d", connID)
 	return EncodeSimpleString("OK"), nil
 }
@@ -35,11 +48,20 @@ func (r *Redis) handleDiscard(connID uint64) ([]byte, error) {
 }
 
 func (r *Redis) handleWatch(connID uint64, args []string) ([]byte, error) {
-	tx, _ := r.transactions[connID]
+	tx, isTx := r.transactions[connID]
 
-	// if !isTx {
-	// 	return EncodeError("ERR WATCH without MULTI"), nil
-	// }
+	if !isTx {
+		tx.commands = []Command{}
+		tx.connID = connID
+		tx.multiCalled = false
+		tx.watchedKeys = args
+		r.transactions[connID] = tx
+		return EncodeSimpleString("OK"), nil
+	}
+
+	if tx.multiCalled {
+		return EncodeError("ERR WATCH inside MULTI is not allowed"), nil
+	}
 
 	tx.watchedKeys = append(tx.watchedKeys, args...)
 	r.transactions[connID] = tx
