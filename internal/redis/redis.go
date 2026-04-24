@@ -25,19 +25,24 @@ type waiter struct {
 	claimed atomic.Bool // CAS to claim; whoever wins is the sole writer to ch
 }
 
+type RedisConfig struct {
+	IsReplica bool
+}
 type Redis struct {
 	storage      *Storage
 	transactions map[uint64]transaction // connID -> queued commands (key present = in MULTI)
 	waitersBLPOP map[string][]*waiter   // key -> FIFO list of blocked clients
 	waitersXREAD map[string][]*waiter
+	config       RedisConfig
 }
 
-func NewRedis() *Redis {
+func NewRedis(config RedisConfig) *Redis {
 	return &Redis{
 		storage:      NewStorage(),
 		transactions: make(map[uint64]transaction),
 		waitersBLPOP: make(map[string][]*waiter),
 		waitersXREAD: make(map[string][]*waiter),
+		config:       config,
 	}
 }
 

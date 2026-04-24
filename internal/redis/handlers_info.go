@@ -6,6 +6,11 @@ func appendInfoLine(s, key, val string) string {
 
 func (r *Redis) handleInfo() ([]byte, error) {
 	info := ""
-	info = appendInfoLine(info, "role", "master")
+
+	role := "master"
+	if r.config.IsReplica {
+		role = "slave"
+	}
+	info = appendInfoLine(info, "role", role)
 	return EncodeBulkString(info), nil
 }

@@ -151,8 +151,11 @@ func main() {
 		port = parsedPort
 	}
 
+	isReplica := slices.Contains(os.Args, "--replicaof")
+
+	redisConfig := redis.RedisConfig{IsReplica: isReplica}
 	fmt.Println("Logs from your program will appear here!")
-	r := redis.NewRedis()
+	r := redis.NewRedis(redisConfig)
 	server, err := NewTCPServer(
 		ServerConfig{
 			IP:   net.ParseIP("0.0.0.0"),
