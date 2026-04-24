@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"bufio"
 	cryptorand "crypto/rand"
 	"encoding/hex"
 	"log"
@@ -62,6 +63,7 @@ type Redis struct {
 	connMap       map[uint64]net.Conn // connID -> connection
 	replicaConns  map[uint64]net.Conn // connID -> replica connections
 	masterConn    *net.TCPConn
+	masterReader  *bufio.Reader
 }
 
 func NewRedis(config RedisConfig) *Redis {

@@ -37,19 +37,21 @@ func (r *Redis) connectToMaster() (*net.TCPConn, error) {
 		return nil, err
 	}
 
-	if err := r.handshake(conn); err != nil {
+	br := bufio.NewReader(conn)
+	if err := r.handshake(conn, br); err != nil {
 		return nil, err
 	}
 
+	r.masterReader = br
 	return conn, nil
 }
 
-func (r *Redis) handshake(conn *net.TCPConn) error {
+func (r *Redis) handshake(conn *net.TCPConn, br *bufio.Reader) error {
 	// Step 1: PING
 	if _, err := conn.Write(EncodeArray([]string{"PING"})); err != nil {
 		return err
 	}
-	if err := expectSimpleString(conn, "PONG"); err != nil {
+	if err := expectSimpleString(br, "PONG"); err != nil {
 		return err
 	}
 
@@ -57,7 +59,7 @@ func (r *Redis) handshake(conn *net.TCPConn) error {
 	if _, err := conn.Write(EncodeArray([]string{"REPLCONF", "listening-port", strconv.Itoa(r.config.Port)})); err != nil {
 		return err
 	}
-	if err := expectSimpleString(conn, "OK"); err != nil {
+	if err := expectSimpleString(br, "OK"); err != nil {
 		return err
 	}
 
@@ -65,7 +67,7 @@ func (r *Redis) handshake(conn *net.TCPConn) error {
 	if _, err := conn.Write(EncodeArray([]string{"REPLCONF", "capa", "psync2"})); err != nil {
 		return err
 	}
-	if err := expectSimpleString(conn, "OK"); err != nil {
+	if err := expectSimpleString(br, "OK"); err != nil {
 		return err
 	}
 
@@ -73,20 +75,15 @@ func (r *Redis) handshake(conn *net.TCPConn) error {
 		return err
 	}
 
-	if err := expectSimpleString(conn, ""); err != nil {
+	if err := expectSimpleString(br, ""); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func expectSimpleString(conn *net.TCPConn, expected string) error {
-	buf := make([]byte, 64)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return err
-	}
-	el, _, err := ParseRESP(buf[:n])
+func expectSimpleString(br *bufio.Reader, expected string) error {
+	el, err := ReadRESP(br)
 	if err != nil {
 		return err
 	}
@@ -128,7 +125,7 @@ func (r *Redis) replicaMainLoop() {
 	if !r.isReplica() {
 		return
 	}
-	br := bufio.NewReader(r.masterConn)
+	br := r.masterReader
 	if err := readRDB(br); err != nil {
 		log.Printf("failed to read RDB from master: %v", err)
 		return
