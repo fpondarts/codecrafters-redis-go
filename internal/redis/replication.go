@@ -49,6 +49,14 @@ func (r *Redis) handshake(conn *net.TCPConn) error {
 		return err
 	}
 
+	if _, err := conn.Write(EncodeArray([]string{"PSYNC", "?", "-1"})); err != nil {
+		return err
+	}
+
+	if err := expectSimpleString(conn, ""); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -63,7 +71,7 @@ func expectSimpleString(conn *net.TCPConn, expected string) error {
 		return err
 	}
 	ss, ok := el.(RESPSimpleString)
-	if !ok || ss.Value != expected {
+	if !ok || (len(expected) != 0 && ss.Value != expected) {
 		return fmt.Errorf("expected +%s, got %v", expected, el)
 	}
 	return nil
