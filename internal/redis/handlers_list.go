@@ -17,6 +17,7 @@ func (r *Redis) handleRPush(args []string) ([]byte, error) {
 		return EncodeError(err.Error()), nil
 	}
 	r.notifyWaiters(key)
+	r.invalidateWatchers(key)
 	return EncodeInteger(int64(n)), nil
 }
 
@@ -31,6 +32,7 @@ func (r *Redis) handleLPush(args []string) ([]byte, error) {
 		return EncodeError(err.Error()), nil
 	}
 	r.notifyWaiters(key)
+	r.invalidateWatchers(key)
 	return EncodeInteger(int64(n)), nil
 }
 
@@ -110,6 +112,7 @@ func (r *Redis) handleLPop(args []string) ([]byte, error) {
 	if len(popped) == 0 {
 		return EncodeNullBulkString(), nil
 	}
+	r.invalidateWatchers(key)
 	if len(popped) == 1 {
 		return EncodeBulkString(popped[0]), nil
 	}

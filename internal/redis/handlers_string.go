@@ -34,6 +34,7 @@ func (r *Redis) handleSet(args []string) ([]byte, error) {
 	if err := r.storage.Set(key, value, expiration); err != nil {
 		return EncodeError(err.Error()), nil
 	}
+	r.invalidateWatchers(key)
 	return EncodeSimpleString("OK"), nil
 }
 
@@ -62,6 +63,6 @@ func (r *Redis) handleIncr(args []string) ([]byte, error) {
 	if err != nil {
 		return EncodeError("ERR value is not an integer or out of range"), nil
 	}
-
+	r.invalidateWatchers(args[0])
 	return EncodeInteger(int64(incr)), nil
 }

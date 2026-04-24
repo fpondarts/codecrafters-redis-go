@@ -22,12 +22,16 @@ func (r *Redis) handleMulti(connID uint64) ([]byte, error) {
 }
 
 func (r *Redis) handleExec(connID uint64) (Response, error) {
-	cmds := r.transactions[connID].commands
+	tx := r.transactions[connID]
 	delete(r.transactions, connID)
-	log.Printf("EXEC connID=%d, %d commands", connID, len(cmds))
+	log.Printf("EXEC connID=%d, %d commands, dirty=%v", connID, len(tx.commands), tx.dirty)
 
-	responses := make([][]byte, len(cmds))
-	for i, cmd := range cmds {
+	if tx.dirty {
+		return wrap(EncodeNullArray(), nil)
+	}
+
+	responses := make([][]byte, len(tx.commands))
+	for i, cmd := range tx.commands {
 		resp, err := r.dispatch(connID, cmd)
 		if err != nil {
 			return Response{}, err
@@ -43,7 +47,6 @@ func (r *Redis) handleDiscard(connID uint64) ([]byte, error) {
 		return EncodeError("ERR DISCARD without MULTI"), nil
 	}
 	delete(r.transactions, connID)
-
 	return EncodeSimpleString("OK"), nil
 }
 
@@ -66,4 +69,16 @@ func (r *Redis) handleWatch(connID uint64, args []string) ([]byte, error) {
 	tx.watchedKeys = append(tx.watchedKeys, args...)
 	r.transactions[connID] = tx
 	return EncodeSimpleString("OK"), nil
+}
+
+func (r *Redis) invalidateWatchers(key string) {
+	for connID, tx := range r.transactions {
+		for _, k := range tx.watchedKeys {
+			if k == key {
+				tx.dirty = true
+				r.transactions[connID] = tx
+				break
+			}
+		}
+	}
 }

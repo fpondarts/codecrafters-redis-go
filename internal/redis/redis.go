@@ -18,6 +18,7 @@ type transaction struct {
 	commands    []Command
 	watchedKeys []string
 	multiCalled bool
+	dirty       bool // true if a watched key was modified before EXEC
 }
 type waiter struct {
 	ch      chan []byte

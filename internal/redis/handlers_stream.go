@@ -19,6 +19,7 @@ func (r *Redis) handleXAdd(args []string) ([]byte, error) {
 	}
 	log.Printf("XADD %q %q -> %q", key, id, resultID)
 	r.notifyXReadWaiters(key)
+	r.invalidateWatchers(key)
 	return EncodeBulkString(resultID), nil
 }
 
