@@ -8,7 +8,7 @@ func (r *Redis) handleInfo() ([]byte, error) {
 	info := ""
 
 	role := "master"
-	if r.config.Master != nil {
+	if r.isReplica() {
 		role = "slave"
 	}
 	info = appendInfoLine(info, "role", role)

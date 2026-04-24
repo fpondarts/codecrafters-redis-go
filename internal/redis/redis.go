@@ -104,6 +104,10 @@ func (r *Redis) OnDisconnect(connID uint64) {
 	delete(r.replicaConns, connID)
 }
 
+func (r *Redis) isReplica() bool {
+	return r.config.Master != nil
+}
+
 // Handle is the single entry point for the TCP server. It parses buf as a RESP
 // message, dispatches to the correct handler, and returns a Response.
 // All Redis-level errors are encoded into Response.Data — a non-nil Go error
