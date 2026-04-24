@@ -157,10 +157,10 @@ func main() {
 	if i := slices.Index(os.Args, "--replicaof"); i != -1 {
 		replicaString := os.Args[i+1]
 		parts := strings.SplitN(replicaString, " ", 2)
-		ip, port := parts[0], parts[1]
+		host, port := parts[0], parts[1]
 
-		parsedIP := net.ParseIP(ip)
-		if parsedIP == nil {
+		parsedIP, err := net.LookupIP(host)
+		if err != nil {
 			log.Fatalf("bad --replicaof HOST")
 		}
 
@@ -169,7 +169,7 @@ func main() {
 			log.Fatalf("bad --replicaof PORT")
 		}
 
-		masterNode = &redis.MasterNode{IP: parsedIP, Port: parsedPort}
+		masterNode = &redis.MasterNode{IP: parsedIP[0], Port: parsedPort}
 	}
 	redisConfig := redis.RedisConfig{Master: masterNode}
 	fmt.Println("Logs from your program will appear here!")
