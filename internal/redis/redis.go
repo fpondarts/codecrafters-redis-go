@@ -67,7 +67,7 @@ func (r *Redis) Handle(connID uint64, buf []byte) (Response, error) {
 		case "EXEC":
 			return r.handleExec(connID)
 		case "MULTI":
-			return wrap(EncodeError("ERR MULTI calls can not be nested"), nil)
+			return wrap(r.handleMulti(connID))
 		case "DISCARD":
 			return wrap(r.handleDiscard(connID))
 		case "WATCH":
