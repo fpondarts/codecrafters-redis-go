@@ -60,7 +60,7 @@ func (r *Redis) handleIncr(args []string) ([]byte, error) {
 
 	incr, err := r.storage.Increment(args[0])
 	if err != nil {
-		return EncodeError(err.Error()), nil
+		return EncodeError("ERR value is not an integer or out of range"), nil
 	}
 
 	return EncodeInteger(int64(incr)), nil
