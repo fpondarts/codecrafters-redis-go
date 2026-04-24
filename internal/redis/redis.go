@@ -20,20 +20,29 @@ type waiter struct {
 
 type Redis struct {
 	storage      *Storage
-	queue        map[string][]Command
+	queue        map[uint64][]Command // connID -> queued commands (key present = in MULTI)
 	waitersBLPOP map[string][]*waiter // key -> FIFO list of blocked clients
 	waitersXREAD map[string][]*waiter
 }
 
 func NewRedis() *Redis {
-	return &Redis{storage: NewStorage(), waitersBLPOP: make(map[string][]*waiter), waitersXREAD: make(map[string][]*waiter), queue: make(map[string][]Command)}
+	return &Redis{
+		storage:      NewStorage(),
+		queue:        make(map[uint64][]Command),
+		waitersBLPOP: make(map[string][]*waiter),
+		waitersXREAD: make(map[string][]*waiter),
+	}
+}
+
+func (r *Redis) OnDisconnect(connID uint64) {
+	delete(r.queue, connID)
 }
 
 // Handle is the single entry point for the TCP server. It parses buf as a RESP
 // message, dispatches to the correct handler, and returns a Response.
 // All Redis-level errors are encoded into Response.Data — a non-nil Go error
 // signals an unrecoverable internal failure.
-func (r *Redis) Handle(buf []byte) (Response, error) {
+func (r *Redis) Handle(connID uint64, buf []byte) (Response, error) {
 	el, _, err := ParseRESP(buf)
 	if err != nil {
 		log.Printf("RESP parse error: %v", err)
@@ -45,14 +54,27 @@ func (r *Redis) Handle(buf []byte) (Response, error) {
 		return Response{Data: EncodeError("ERR " + err.Error())}, nil
 	}
 	log.Printf("dispatching command %q args=%v", cmd.Name, cmd.Args)
-	return r.dispatch(cmd)
+
+	if _, inTx := r.queue[connID]; inTx {
+		switch cmd.Name {
+		case "EXEC":
+			return r.handleExec(connID)
+		case "MULTI":
+			return wrap(EncodeError("ERR MULTI calls can not be nested"), nil)
+		default:
+			r.queue[connID] = append(r.queue[connID], cmd)
+			return wrap(EncodeSimpleString("QUEUED"), nil)
+		}
+	}
+
+	return r.dispatch(connID, cmd)
 }
 
 func wrap(data []byte, err error) (Response, error) {
 	return Response{Data: data}, err
 }
 
-func (r *Redis) dispatch(cmd Command) (Response, error) {
+func (r *Redis) dispatch(connID uint64, cmd Command) (Response, error) {
 	switch cmd.Name {
 	case "PING":
 		return wrap(r.handlePing())
@@ -75,7 +97,9 @@ func (r *Redis) dispatch(cmd Command) (Response, error) {
 	case "LPOP":
 		return wrap(r.handleLPop(cmd.Args))
 	case "MULTI":
-		return wrap(r.handleMulti(cmd.Args))
+		return wrap(r.handleMulti(connID))
+	case "EXEC":
+		return wrap(EncodeError("ERR EXEC without MULTI"), nil)
 	case "BLPOP":
 		return r.handleBLPop(cmd.Args)
 	case "XADD":

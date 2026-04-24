@@ -6,36 +6,42 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/codecrafters-io/redis-starter-go/internal/redis"
 )
 
 type Event struct {
+	ConnID uint64
 	Conn   net.Conn
 	Data   []byte
 	Result chan error
 }
 
 type TCPServer struct {
-	Listener   net.Listener
-	Clients    map[net.Conn]struct{}
-	ClientsMtx sync.Mutex
-	EventQueue chan Event
-	HandleFunc func([]byte) (redis.Response, error)
+	Listener    net.Listener
+	Clients     map[net.Conn]struct{}
+	ClientsMtx  sync.Mutex
+	EventQueue  chan Event
+	HandleFunc  func(connID uint64, buf []byte) (redis.Response, error)
+	DisconnFunc func(connID uint64)
+	connCounter atomic.Uint64
 }
 
 func (server *TCPServer) HandleConnection(conn net.Conn) {
-	log.Printf("new connection from %s", conn.RemoteAddr())
+	connID := server.connCounter.Add(1)
+	log.Printf("new connection from %s (id=%d)", conn.RemoteAddr(), connID)
 	server.ClientsMtx.Lock()
 	server.Clients[conn] = struct{}{}
 	server.ClientsMtx.Unlock()
 
 	defer func() {
-		log.Printf("connection closed: %s", conn.RemoteAddr())
+		log.Printf("connection closed: %s (id=%d)", conn.RemoteAddr(), connID)
 		conn.Close()
 		server.ClientsMtx.Lock()
 		delete(server.Clients, conn)
 		server.ClientsMtx.Unlock()
+		server.DisconnFunc(connID)
 	}()
 
 	buf := make([]byte, 512)
@@ -48,7 +54,7 @@ func (server *TCPServer) HandleConnection(conn net.Conn) {
 		data := make([]byte, n)
 		copy(data, buf[:n])
 		errChan := make(chan error, 1)
-		server.EventQueue <- Event{Conn: conn, Data: data, Result: errChan}
+		server.EventQueue <- Event{ConnID: connID, Conn: conn, Data: data, Result: errChan}
 		if err := <-errChan; err != nil {
 			log.Printf("write error for %s: %v", conn.RemoteAddr(), err)
 			return
@@ -58,7 +64,7 @@ func (server *TCPServer) HandleConnection(conn net.Conn) {
 
 func (server *TCPServer) EventLoop() {
 	for event := range server.EventQueue {
-		resp, err := server.HandleFunc(event.Data)
+		resp, err := server.HandleFunc(event.ConnID, event.Data)
 		if err != nil {
 			log.Printf("internal error handling event: %v", err)
 			event.Result <- err
@@ -101,7 +107,11 @@ type ServerConfig struct {
 	Port int
 }
 
-func NewTCPServer(config ServerConfig, handleFunc func([]byte) (redis.Response, error)) (*TCPServer, error) {
+func NewTCPServer(
+	config ServerConfig,
+	handleFunc func(connID uint64, buf []byte) (redis.Response, error),
+	disconnFunc func(connID uint64),
+) (*TCPServer, error) {
 	addr := &net.TCPAddr{
 		IP:   config.IP,
 		Port: config.Port,
@@ -113,10 +123,11 @@ func NewTCPServer(config ServerConfig, handleFunc func([]byte) (redis.Response, 
 	}
 
 	return &TCPServer{
-		Listener:   listener,
-		Clients:    make(map[net.Conn]struct{}),
-		EventQueue: make(chan Event, 1000),
-		HandleFunc: handleFunc,
+		Listener:    listener,
+		Clients:     make(map[net.Conn]struct{}),
+		EventQueue:  make(chan Event, 1000),
+		HandleFunc:  handleFunc,
+		DisconnFunc: disconnFunc,
 	}, nil
 }
 
@@ -129,10 +140,14 @@ var (
 func main() {
 	fmt.Println("Logs from your program will appear here!")
 	r := redis.NewRedis()
-	server, err := NewTCPServer(ServerConfig{
-		IP:   net.ParseIP("0.0.0.0"),
-		Port: 6379,
-	}, r.Handle)
+	server, err := NewTCPServer(
+		ServerConfig{
+			IP:   net.ParseIP("0.0.0.0"),
+			Port: 6379,
+		},
+		r.Handle,
+		r.OnDisconnect,
+	)
 	if err != nil {
 		log.Fatalf("failed to create server: %v", err)
 	}
