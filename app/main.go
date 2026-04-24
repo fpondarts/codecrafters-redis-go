@@ -5,6 +5,8 @@ import (
 	"log"
 	"net"
 	"os"
+	"slices"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -138,12 +140,23 @@ var (
 )
 
 func main() {
+	port := 6379
+
+	if i := slices.Index(os.Args, "--port"); i != -1 {
+		parsedPort, err := strconv.Atoi(os.Args[i+1])
+		if err != nil {
+			log.Fatalf("bad --port argument")
+		}
+
+		port = parsedPort
+	}
+
 	fmt.Println("Logs from your program will appear here!")
 	r := redis.NewRedis()
 	server, err := NewTCPServer(
 		ServerConfig{
 			IP:   net.ParseIP("0.0.0.0"),
-			Port: 6379,
+			Port: port,
 		},
 		r.Handle,
 		r.OnDisconnect,
