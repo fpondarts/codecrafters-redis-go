@@ -151,6 +151,8 @@ func (r *Redis) dispatch(connID uint64, cmd Command) (Response, error) {
 		return wrap(r.handleMulti(connID))
 	case "PING":
 		return wrap(r.handlePing())
+	case "REPLCONF":
+		return wrap(r.handleReplconf())
 	case "RPUSH":
 		return wrap(r.handleRPush(cmd.Args))
 	case "SET":
