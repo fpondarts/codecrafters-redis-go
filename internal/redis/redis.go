@@ -1,7 +1,10 @@
 package redis
 
 import (
+	cryptorand "crypto/rand"
+	"encoding/hex"
 	"log"
+	mathrand "math/rand"
 	"sync/atomic"
 )
 
@@ -29,21 +32,32 @@ type RedisConfig struct {
 	IsReplica bool
 }
 type Redis struct {
-	storage      *Storage
-	transactions map[uint64]transaction // connID -> queued commands (key present = in MULTI)
-	waitersBLPOP map[string][]*waiter   // key -> FIFO list of blocked clients
-	waitersXREAD map[string][]*waiter
-	config       RedisConfig
+	storage       *Storage
+	transactions  map[uint64]transaction // connID -> queued commands (key present = in MULTI)
+	waitersBLPOP  map[string][]*waiter   // key -> FIFO list of blocked clients
+	waitersXREAD  map[string][]*waiter
+	config        RedisConfig
+	replicationID string // 40-char hex, generated once at startup
 }
 
 func NewRedis(config RedisConfig) *Redis {
 	return &Redis{
-		storage:      NewStorage(),
-		transactions: make(map[uint64]transaction),
-		waitersBLPOP: make(map[string][]*waiter),
-		waitersXREAD: make(map[string][]*waiter),
-		config:       config,
+		storage:       NewStorage(),
+		transactions:  make(map[uint64]transaction),
+		waitersBLPOP:  make(map[string][]*waiter),
+		waitersXREAD:  make(map[string][]*waiter),
+		config:        config,
+		replicationID: generateReplID(),
 	}
+}
+
+func generateReplID() string {
+	b := make([]byte, 20)
+	if _, err := cryptorand.Read(b); err != nil {
+		// fall back to math/rand if crypto/rand is unavailable
+		mathrand.Read(b)
+	}
+	return hex.EncodeToString(b)
 }
 
 func (r *Redis) OnDisconnect(connID uint64) {

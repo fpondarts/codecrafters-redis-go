@@ -12,5 +12,7 @@ func (r *Redis) handleInfo() ([]byte, error) {
 		role = "slave"
 	}
 	info = appendInfoLine(info, "role", role)
+	info = appendInfoLine(info, "master_replid", r.replicationID)
+	info = appendInfoLine(info, "master_repl_offset", "0")
 	return EncodeBulkString(info), nil
 }
