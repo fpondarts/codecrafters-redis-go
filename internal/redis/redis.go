@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"log"
 	mathrand "math/rand"
+	"net"
 	"sync/atomic"
 )
 
@@ -28,9 +29,14 @@ type waiter struct {
 	claimed atomic.Bool // CAS to claim; whoever wins is the sole writer to ch
 }
 
-type RedisConfig struct {
-	IsReplica bool
+type MasterNode struct {
+	IP   net.IP
+	Port int
 }
+type RedisConfig struct {
+	Master *MasterNode
+}
+
 type Redis struct {
 	storage       *Storage
 	transactions  map[uint64]transaction // connID -> queued commands (key present = in MULTI)
@@ -41,7 +47,7 @@ type Redis struct {
 }
 
 func NewRedis(config RedisConfig) *Redis {
-	return &Redis{
+	r := &Redis{
 		storage:       NewStorage(),
 		transactions:  make(map[uint64]transaction),
 		waitersBLPOP:  make(map[string][]*waiter),
@@ -49,6 +55,15 @@ func NewRedis(config RedisConfig) *Redis {
 		config:        config,
 		replicationID: generateReplID(),
 	}
+
+	if config.Master != nil {
+		err := r.connectToMaster()
+		if err != nil {
+			return nil
+		}
+	}
+
+	return r
 }
 
 func generateReplID() string {

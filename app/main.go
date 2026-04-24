@@ -7,6 +7,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -151,11 +152,32 @@ func main() {
 		port = parsedPort
 	}
 
-	isReplica := slices.Contains(os.Args, "--replicaof")
+	var masterNode *redis.MasterNode = nil
 
-	redisConfig := redis.RedisConfig{IsReplica: isReplica}
+	if i := slices.Index(os.Args, "--replicaof"); i != -1 {
+		replicaString := os.Args[i+1]
+		parts := strings.SplitN(replicaString, " ", 2)
+		ip, port := parts[0], parts[1]
+
+		parsedIP := net.ParseIP(ip)
+		if parsedIP == nil {
+			log.Fatalf("bad --replicaof HOST")
+		}
+
+		parsedPort, err := strconv.Atoi(port)
+		if err != nil {
+			log.Fatalf("bad --replicaof PORT")
+		}
+
+		masterNode = &redis.MasterNode{IP: parsedIP, Port: parsedPort}
+	}
+	redisConfig := redis.RedisConfig{Master: masterNode}
 	fmt.Println("Logs from your program will appear here!")
 	r := redis.NewRedis(redisConfig)
+
+	if r == nil {
+		log.Fatalf("Failed to init redis")
+	}
 	server, err := NewTCPServer(
 		ServerConfig{
 			IP:   net.ParseIP("0.0.0.0"),
