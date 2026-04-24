@@ -61,6 +61,7 @@ type Redis struct {
 	replicationID string              // 40-char hex, generated once at startup
 	connMap       map[uint64]net.Conn // connID -> connection
 	replicaConns  map[uint64]net.Conn // connID -> replica connections
+	masterConn    *net.TCPConn
 }
 
 func NewRedis(config RedisConfig) *Redis {
@@ -73,15 +74,19 @@ func NewRedis(config RedisConfig) *Redis {
 		replicationID: generateReplID(),
 		connMap:       make(map[uint64]net.Conn),
 		replicaConns:  make(map[uint64]net.Conn),
+		masterConn:    nil,
 	}
 
 	if config.Master != nil {
-		err := r.connectToMaster()
+		conn, err := r.connectToMaster()
 		if err != nil {
 			return nil
 		}
+
+		r.masterConn = conn
 	}
 
+	go r.replicaMainLoop()
 	return r
 }
 

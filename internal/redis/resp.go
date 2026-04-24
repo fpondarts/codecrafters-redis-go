@@ -2,9 +2,12 @@
 package redis
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"strconv"
+	"strings"
 )
 
 type RESPElement interface {
@@ -112,6 +115,125 @@ func EncodeStreamEntries(entries []StreamEntry) []byte {
 		out = append(out, EncodeArray(e.Fields)...)
 	}
 	return out
+}
+
+// EncodeElement re-encodes a parsed RESPElement back to its wire representation.
+func EncodeElement(el RESPElement) []byte {
+	switch v := el.(type) {
+	case RESPSimpleString:
+		return EncodeSimpleString(v.Value)
+	case RESPError:
+		return EncodeError(v.Value)
+	case RESPInteger:
+		return EncodeInteger(v.Value)
+	case RESPBulkString:
+		if v.Null {
+			return EncodeNullBulkString()
+		}
+		return EncodeBulkString(v.Value)
+	case RESPArray:
+		if v.Null {
+			return EncodeNullArray()
+		}
+		out := []byte("*" + strconv.Itoa(len(v.Elements)) + "\r\n")
+		for _, e := range v.Elements {
+			out = append(out, EncodeElement(e)...)
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+// ReadRESP reads from r until exactly one complete RESP message has arrived.
+// It wraps r in a bufio.Reader when needed, so it is safe to call repeatedly
+// on the same connection — unread bytes stay buffered for the next call.
+// Pass a *bufio.Reader directly to share the buffer across calls.
+func ReadRESP(r io.Reader) (RESPElement, error) {
+	br, ok := r.(*bufio.Reader)
+	if !ok {
+		br = bufio.NewReader(r)
+	}
+	return readElement(br)
+}
+
+func readElement(r *bufio.Reader) (RESPElement, error) {
+	typeByte, err := r.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	switch typeByte {
+	case '+':
+		line, err := readCRLFLine(r)
+		if err != nil {
+			return nil, err
+		}
+		return RESPSimpleString{Value: line}, nil
+	case '-':
+		line, err := readCRLFLine(r)
+		if err != nil {
+			return nil, err
+		}
+		return RESPError{Value: line}, nil
+	case ':':
+		line, err := readCRLFLine(r)
+		if err != nil {
+			return nil, err
+		}
+		n, err := strconv.ParseInt(line, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid integer: %w", err)
+		}
+		return RESPInteger{Value: n}, nil
+	case '$':
+		line, err := readCRLFLine(r)
+		if err != nil {
+			return nil, err
+		}
+		length, err := strconv.Atoi(line)
+		if err != nil {
+			return nil, fmt.Errorf("invalid bulk string length: %w", err)
+		}
+		if length == -1 {
+			return RESPBulkString{Null: true}, nil
+		}
+		data := make([]byte, length+2) // +2 for trailing CRLF
+		if _, err := io.ReadFull(r, data); err != nil {
+			return nil, err
+		}
+		return RESPBulkString{Value: string(data[:length])}, nil
+	case '*':
+		line, err := readCRLFLine(r)
+		if err != nil {
+			return nil, err
+		}
+		count, err := strconv.Atoi(line)
+		if err != nil {
+			return nil, fmt.Errorf("invalid array length: %w", err)
+		}
+		if count == -1 {
+			return RESPArray{Null: true}, nil
+		}
+		elements := make([]RESPElement, count)
+		for i := range count {
+			el, err := readElement(r)
+			if err != nil {
+				return nil, fmt.Errorf("array element %d: %w", i, err)
+			}
+			elements[i] = el
+		}
+		return RESPArray{Elements: elements}, nil
+	default:
+		return nil, fmt.Errorf("unknown RESP type: %q", typeByte)
+	}
+}
+
+func readCRLFLine(r *bufio.Reader) (string, error) {
+	line, err := r.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r"), nil
 }
 
 // ParseRESP parses a RESP-encoded buffer and returns the parsed element and

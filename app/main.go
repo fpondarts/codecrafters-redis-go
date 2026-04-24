@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"net"
@@ -49,17 +50,16 @@ func (server *TCPServer) HandleConnection(conn net.Conn) {
 		server.DisconnFunc(connID)
 	}()
 
-	buf := make([]byte, 512)
+	br := bufio.NewReader(conn)
 	for {
-		n, err := conn.Read(buf)
+		el, err := redis.ReadRESP(br)
 		if err != nil {
 			return
 		}
-		log.Printf("received %d bytes from %s: %q", n, conn.RemoteAddr(), buf[:n])
-		data := make([]byte, n)
-		copy(data, buf[:n])
+		buf := redis.EncodeElement(el)
+		log.Printf("received command from %s (id=%d): %q", conn.RemoteAddr(), connID, buf)
 		errChan := make(chan error, 1)
-		server.EventQueue <- Event{ConnID: connID, Conn: conn, Data: data, Result: errChan}
+		server.EventQueue <- Event{ConnID: connID, Conn: conn, Data: buf, Result: errChan}
 		if err := <-errChan; err != nil {
 			log.Printf("write error for %s: %v", conn.RemoteAddr(), err)
 			return

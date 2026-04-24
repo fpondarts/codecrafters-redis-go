@@ -1,11 +1,14 @@
 package redis
 
 import (
+	"bufio"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"strconv"
+	"strings"
 )
 
 // emptyRDB is the minimal valid RDB file (CodeCrafters standard empty snapshot).
@@ -19,9 +22,9 @@ func encodeRDB(data []byte) []byte {
 	return append(header, data...)
 }
 
-func (r *Redis) connectToMaster() error {
+func (r *Redis) connectToMaster() (*net.TCPConn, error) {
 	if r.config.Master == nil {
-		return nil
+		return nil, nil
 	}
 
 	addr := &net.TCPAddr{
@@ -31,10 +34,14 @@ func (r *Redis) connectToMaster() error {
 
 	conn, err := net.DialTCP("tcp", nil, addr)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return r.handshake(conn)
+	if err := r.handshake(conn); err != nil {
+		return nil, err
+	}
+
+	return conn, nil
 }
 
 func (r *Redis) handshake(conn *net.TCPConn) error {
@@ -90,11 +97,48 @@ func expectSimpleString(conn *net.TCPConn, expected string) error {
 	return nil
 }
 
-func (r *Redis) propagateToReplicas(cmd []byte) {
+func (r *Redis) propagateToReplicas(buf []byte) {
 	for connID, conn := range r.replicaConns {
-		_, err := conn.Write(cmd)
-		if err != nil {
+		if _, err := conn.Write(buf); err != nil {
 			log.Println("Failed to replicate to connID: ", connID)
 		}
+	}
+}
+
+// readRDB drains one RDB transfer from r. The wire format is $<len>\r\n<bytes>
+// with no trailing CRLF — distinct from a RESP bulk string.
+func readRDB(r *bufio.Reader) error {
+	line, err := r.ReadString('\n')
+	if err != nil {
+		return err
+	}
+	line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+	if len(line) == 0 || line[0] != '$' {
+		return fmt.Errorf("expected RDB header, got %q", line)
+	}
+	length, err := strconv.Atoi(line[1:])
+	if err != nil {
+		return fmt.Errorf("invalid RDB length: %w", err)
+	}
+	_, err = io.ReadFull(r, make([]byte, length))
+	return err
+}
+
+func (r *Redis) replicaMainLoop() {
+	if !r.isReplica() {
+		return
+	}
+	br := bufio.NewReader(r.masterConn)
+	if err := readRDB(br); err != nil {
+		log.Printf("failed to read RDB from master: %v", err)
+		return
+	}
+	for {
+		el, err := ReadRESP(br)
+		if err != nil {
+			log.Printf("lost connection to master: %v", err)
+			return
+		}
+		r.Handle(0, EncodeElement(el))
 	}
 }
