@@ -27,7 +27,7 @@ func (r *Redis) handleExec(connID uint64) (Response, error) {
 func (r *Redis) handleDiscard(connID uint64) ([]byte, error) {
 	_, isTx := r.queue[connID]
 	if !isTx {
-		return EncodeError("Err DISCARD without MULTI"), nil
+		return EncodeError("ERR DISCARD without MULTI"), nil
 	}
 	delete(r.queue, connID)
 

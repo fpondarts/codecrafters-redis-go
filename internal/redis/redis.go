@@ -81,7 +81,7 @@ func (r *Redis) dispatch(connID uint64, cmd Command) (Response, error) {
 	case "PING":
 		return wrap(r.handlePing())
 	case "DISCARD":
-		return wrap(EncodeError("Err DISCARD without MULTI"), nil)
+		return wrap(EncodeError("ERR DISCARD without MULTI"), nil)
 	case "ECHO":
 		return wrap(r.handleEcho(cmd.Args))
 	case "SET":
