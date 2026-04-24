@@ -44,7 +44,9 @@ type Redis struct {
 	waitersBLPOP  map[string][]*waiter   // key -> FIFO list of blocked clients
 	waitersXREAD  map[string][]*waiter
 	config        RedisConfig
-	replicationID string // 40-char hex, generated once at startup
+	replicationID string              // 40-char hex, generated once at startup
+	connMap       map[uint64]net.Conn // connID -> connection
+	replicaConns  map[uint64]net.Conn // connID -> replica connections
 }
 
 func NewRedis(config RedisConfig) *Redis {
@@ -55,6 +57,8 @@ func NewRedis(config RedisConfig) *Redis {
 		waitersXREAD:  make(map[string][]*waiter),
 		config:        config,
 		replicationID: generateReplID(),
+		connMap:       make(map[uint64]net.Conn),
+		replicaConns:  make(map[uint64]net.Conn),
 	}
 
 	if config.Master != nil {
@@ -76,8 +80,14 @@ func generateReplID() string {
 	return hex.EncodeToString(b)
 }
 
+func (r *Redis) OnConnect(connID uint64, conn net.Conn) {
+	r.connMap[connID] = conn
+}
+
 func (r *Redis) OnDisconnect(connID uint64) {
 	delete(r.transactions, connID)
+	delete(r.connMap, connID)
+	delete(r.replicaConns, connID)
 }
 
 // Handle is the single entry point for the TCP server. It parses buf as a RESP
@@ -152,9 +162,9 @@ func (r *Redis) dispatch(connID uint64, cmd Command) (Response, error) {
 	case "PING":
 		return wrap(r.handlePing())
 	case "PSYNC":
-		return wrap(r.handlePsync())
+		return wrap(r.handlePsync(connID))
 	case "REPLCONF":
-		return wrap(r.handleReplconf())
+		return wrap(r.handleReplconf(cmd.Args))
 	case "RPUSH":
 		return wrap(r.handleRPush(cmd.Args))
 	case "SET":

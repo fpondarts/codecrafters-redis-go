@@ -1,10 +1,22 @@
 package redis
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net"
 	"strconv"
 )
+
+// emptyRDB is the minimal valid RDB file (CodeCrafters standard empty snapshot).
+var emptyRDB = func() []byte {
+	b, _ := hex.DecodeString("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fe00fb0000ff8e01433d49b2078140")
+	return b
+}()
+
+func encodeRDB(data []byte) []byte {
+	header := []byte("$" + strconv.Itoa(len(data)) + "\r\n")
+	return append(header, data...)
+}
 
 func (r *Redis) connectToMaster() error {
 	if r.config.Master == nil {
@@ -73,6 +85,13 @@ func expectSimpleString(conn *net.TCPConn, expected string) error {
 	ss, ok := el.(RESPSimpleString)
 	if !ok || (len(expected) != 0 && ss.Value != expected) {
 		return fmt.Errorf("expected +%s, got %v", expected, el)
+	}
+	return nil
+}
+
+func sendRDBFile(conn *net.TCPConn) error {
+	if _, err := conn.Write([]byte("+$0\r\n")); err != nil {
+		return err
 	}
 	return nil
 }

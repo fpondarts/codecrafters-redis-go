@@ -27,6 +27,7 @@ type TCPServer struct {
 	ClientsMtx  sync.Mutex
 	EventQueue  chan Event
 	HandleFunc  func(connID uint64, buf []byte) (redis.Response, error)
+	ConnectFunc func(connID uint64, conn net.Conn)
 	DisconnFunc func(connID uint64)
 	connCounter atomic.Uint64
 }
@@ -37,6 +38,7 @@ func (server *TCPServer) HandleConnection(conn net.Conn) {
 	server.ClientsMtx.Lock()
 	server.Clients[conn] = struct{}{}
 	server.ClientsMtx.Unlock()
+	server.ConnectFunc(connID, conn)
 
 	defer func() {
 		log.Printf("connection closed: %s (id=%d)", conn.RemoteAddr(), connID)
@@ -113,6 +115,7 @@ type ServerConfig struct {
 func NewTCPServer(
 	config ServerConfig,
 	handleFunc func(connID uint64, buf []byte) (redis.Response, error),
+	connectFunc func(connID uint64, conn net.Conn),
 	disconnFunc func(connID uint64),
 ) (*TCPServer, error) {
 	addr := &net.TCPAddr{
@@ -130,6 +133,7 @@ func NewTCPServer(
 		Clients:     make(map[net.Conn]struct{}),
 		EventQueue:  make(chan Event, 1000),
 		HandleFunc:  handleFunc,
+		ConnectFunc: connectFunc,
 		DisconnFunc: disconnFunc,
 	}, nil
 }
@@ -184,6 +188,7 @@ func main() {
 			Port: port,
 		},
 		r.Handle,
+		r.OnConnect,
 		r.OnDisconnect,
 	)
 	if err != nil {

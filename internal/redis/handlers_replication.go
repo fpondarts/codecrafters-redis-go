@@ -1,11 +1,17 @@
 package redis
 
-import "fmt"
-
-func (r *Redis) handleReplconf() ([]byte, error) {
+func (r *Redis) handleReplconf(args []string) ([]byte, error) {
 	return EncodeSimpleString("OK"), nil
 }
 
-func (r *Redis) handlePsync() ([]byte, error) {
-	return EncodeSimpleString(fmt.Sprintf("FULLRESYNC %s 0", r.replicationID)), nil
+func (r *Redis) handlePsync(connID uint64) ([]byte, error) {
+	fullresync := EncodeSimpleString("FULLRESYNC " + r.replicationID + " 0")
+	rdb := encodeRDB(emptyRDB)
+	conn, ok := r.connMap[connID]
+	if ok {
+		r.replicaConns[connID] = conn
+		combined := append(fullresync, rdb...)
+		conn.Write(combined)
+	}
+	return []byte{}, nil
 }
