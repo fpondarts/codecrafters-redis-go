@@ -7,6 +7,7 @@ import (
 	"log"
 	mathrand "math/rand"
 	"net"
+	"strings"
 	"sync/atomic"
 )
 
@@ -28,8 +29,9 @@ func isWriteCommand(name string) bool {
 // For blocking commands (BLPOP), Pending is set instead and the caller should wait
 // on the channel for the response bytes.
 type Response struct {
-	Data    []byte
-	Pending <-chan []byte
+	Data         []byte
+	Pending      <-chan []byte
+	SendToMaster bool // replica should write Data back to the master connection
 }
 
 type transaction struct {
@@ -192,7 +194,9 @@ func (r *Redis) dispatch(connID uint64, cmd Command) (Response, error) {
 	case "PSYNC":
 		return wrap(r.handlePsync(connID))
 	case "REPLCONF":
-		return wrap(r.handleReplconf(cmd.Args))
+		data, err := r.handleReplconf(cmd.Args)
+		isGetAck := len(cmd.Args) > 0 && strings.EqualFold(cmd.Args[0], "GETACK")
+		return Response{Data: data, SendToMaster: isGetAck}, err
 	case "RPUSH":
 		return wrap(r.handleRPush(cmd.Args))
 	case "SET":

@@ -1,6 +1,11 @@
 package redis
 
+import "strings"
+
 func (r *Redis) handleReplconf(args []string) ([]byte, error) {
+	if len(args) > 0 && strings.ToUpper(args[0]) == "GETACK" {
+		return EncodeArray([]string{"REPLCONF", "ACK", "0"}), nil
+	}
 	return EncodeSimpleString("OK"), nil
 }
 

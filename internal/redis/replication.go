@@ -136,6 +136,9 @@ func (r *Redis) replicaMainLoop() {
 			log.Printf("lost connection to master: %v", err)
 			return
 		}
-		r.Handle(0, EncodeElement(el))
+		resp, _ := r.Handle(0, EncodeElement(el))
+		if resp.SendToMaster {
+			r.masterConn.Write(resp.Data)
+		}
 	}
 }
