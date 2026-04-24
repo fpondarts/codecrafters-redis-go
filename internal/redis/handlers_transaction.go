@@ -74,6 +74,20 @@ func (r *Redis) handleWatch(connID uint64, args []string) ([]byte, error) {
 	return EncodeSimpleString("OK"), nil
 }
 
+func (r *Redis) handleUnwatch(connID uint64) ([]byte, error) {
+	tx, isTx := r.transactions[connID]
+
+	if !isTx {
+		return EncodeSimpleString("OK"), nil
+	}
+
+	tx.dirty = false
+	tx.watchedKeys = []string{}
+	r.transactions[connID] = tx
+
+	return EncodeSimpleString("OK"), nil
+}
+
 func (r *Redis) invalidateWatchers(key string) {
 	for connID, tx := range r.transactions {
 		if slices.Contains(tx.watchedKeys, key) {

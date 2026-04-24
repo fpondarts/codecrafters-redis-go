@@ -64,12 +64,14 @@ func (r *Redis) Handle(connID uint64, buf []byte) (Response, error) {
 
 	if tx, inTx := r.transactions[connID]; inTx {
 		switch cmd.Name {
+		case "DISCARD":
+			return wrap(r.handleDiscard(connID))
 		case "EXEC":
 			return r.handleExec(connID)
 		case "MULTI":
 			return wrap(r.handleMulti(connID))
-		case "DISCARD":
-			return wrap(r.handleDiscard(connID))
+		case "UNWATCH":
+			return wrap(r.handleUnwatch(connID))
 		case "WATCH":
 			return wrap(r.handleWatch(connID, cmd.Args))
 		default:
@@ -118,6 +120,8 @@ func (r *Redis) dispatch(connID uint64, cmd Command) (Response, error) {
 		return wrap(r.handleSet(cmd.Args))
 	case "TYPE":
 		return r.handleType(cmd.Args)
+	case "UNWATCH":
+		return wrap(r.handleUnwatch(connID))
 	case "WATCH":
 		return wrap(r.handleWatch(connID, cmd.Args))
 	case "XADD":
