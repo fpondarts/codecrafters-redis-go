@@ -9,7 +9,13 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync/atomic"
 )
+
+type replicaState struct {
+	conn        net.Conn
+	ackedOffset atomic.Uint64
+}
 
 // emptyRDB is the minimal valid RDB file (CodeCrafters standard empty snapshot).
 var emptyRDB = func() []byte {
@@ -95,11 +101,41 @@ func expectSimpleString(br *bufio.Reader, expected string) error {
 }
 
 func (r *Redis) propagateToReplicas(buf []byte) {
-	r.replicaConnsMu.RLock()
-	defer r.replicaConnsMu.RUnlock()
-	for connID, conn := range r.replicaConns {
-		if _, err := conn.Write(buf); err != nil {
+	r.replicasMu.RLock()
+	defer r.replicasMu.RUnlock()
+	if len(r.replicas) == 0 {
+		return
+	}
+	for connID, state := range r.replicas {
+		if _, err := state.conn.Write(buf); err != nil {
 			log.Println("Failed to replicate to connID: ", connID)
+		}
+	}
+	r.propagatedOffset.Add(uint64(len(buf)))
+}
+
+func (r *Redis) listenReplicaACKs(connID uint64) {
+	r.replicasMu.RLock()
+	state, ok := r.replicas[connID]
+	r.replicasMu.RUnlock()
+	if !ok {
+		return
+	}
+	br := bufio.NewReader(state.conn)
+	for {
+		el, err := ReadRESP(br)
+		if err != nil {
+			return
+		}
+		cmd, err := ParseCommand(el)
+		if err != nil || cmd.Name != "REPLCONF" || len(cmd.Args) < 2 {
+			continue
+		}
+		if strings.EqualFold(cmd.Args[0], "ACK") {
+			offset, err := strconv.ParseUint(cmd.Args[1], 10, 64)
+			if err == nil {
+				state.ackedOffset.Store(offset)
+			}
 		}
 	}
 }
