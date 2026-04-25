@@ -144,9 +144,8 @@ var (
 	_ = os.Exit
 )
 
-func main() {
+func parsePortArg() int {
 	port := 6379
-
 	if i := slices.Index(os.Args, "--port"); i != -1 {
 		parsedPort, err := strconv.Atoi(os.Args[i+1])
 		if err != nil {
@@ -156,8 +155,11 @@ func main() {
 		port = parsedPort
 	}
 
-	var masterNode *redis.MasterNode = nil
+	return port
+}
 
+func parseReplicaArg() *redis.MasterNode {
+	var masterNode *redis.MasterNode = nil
 	if i := slices.Index(os.Args, "--replicaof"); i != -1 {
 		replicaString := os.Args[i+1]
 		parts := strings.SplitN(replicaString, " ", 2)
@@ -175,7 +177,24 @@ func main() {
 
 		masterNode = &redis.MasterNode{IP: parsedIP[0], Port: parsedPort}
 	}
-	redisConfig := redis.RedisConfig{Master: masterNode, Port: port}
+	return masterNode
+}
+
+func parseRdbArg() (dir, dbfilename string) {
+	if i := slices.Index(os.Args, "--dir"); i != -1 {
+		dir = os.Args[i+1]
+	}
+	if i := slices.Index(os.Args, "--dbfilename"); i != -1 {
+		dbfilename = os.Args[i+1]
+	}
+	return dir, dbfilename
+}
+
+func main() {
+	port := parsePortArg()
+	masterNode := parseReplicaArg()
+	dir, dbfilename := parseRdbArg()
+	redisConfig := redis.RedisConfig{Master: masterNode, Port: port, Dir: dir, DbFileName: dbfilename}
 	fmt.Println("Logs from your program will appear here!")
 	r := redis.NewRedis(redisConfig)
 

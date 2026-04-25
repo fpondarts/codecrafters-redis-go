@@ -52,16 +52,18 @@ type MasterNode struct {
 	Port int
 }
 type RedisConfig struct {
-	Master *MasterNode
-	Port   int
+	Master     *MasterNode
+	Port       int
+	Dir        string
+	DbFileName string
 }
 
 type Redis struct {
-	storage         *Storage
-	transactions    map[uint64]transaction // connID -> queued commands (key present = in MULTI)
-	waitersBLPOP    map[string][]*waiter   // key -> FIFO list of blocked clients
-	waitersXREAD    map[string][]*waiter
-	config          RedisConfig
+	storage          *Storage
+	transactions     map[uint64]transaction // connID -> queued commands (key present = in MULTI)
+	waitersBLPOP     map[string][]*waiter   // key -> FIFO list of blocked clients
+	waitersXREAD     map[string][]*waiter
+	config           RedisConfig
 	replicationID    string // 40-char hex, generated once at startup
 	connMap          map[uint64]net.Conn
 	connMapMu        sync.RWMutex
@@ -75,15 +77,15 @@ type Redis struct {
 
 func NewRedis(config RedisConfig) *Redis {
 	r := &Redis{
-		storage:        NewStorage(),
-		transactions:   make(map[uint64]transaction),
-		waitersBLPOP:   make(map[string][]*waiter),
-		waitersXREAD:   make(map[string][]*waiter),
-		config:         config,
-		replicationID:  generateReplID(),
-		connMap:    make(map[uint64]net.Conn),
-		replicas:   make(map[uint64]*replicaState),
-		masterConn: nil,
+		storage:       NewStorage(),
+		transactions:  make(map[uint64]transaction),
+		waitersBLPOP:  make(map[string][]*waiter),
+		waitersXREAD:  make(map[string][]*waiter),
+		config:        config,
+		replicationID: generateReplID(),
+		connMap:       make(map[uint64]net.Conn),
+		replicas:      make(map[uint64]*replicaState),
+		masterConn:    nil,
 	}
 
 	if config.Master != nil {
@@ -180,6 +182,8 @@ func (r *Redis) dispatch(connID uint64, cmd Command) (Response, error) {
 	switch cmd.Name {
 	case "BLPOP":
 		return r.handleBLPop(cmd.Args)
+	case "CONFIG":
+		return wrap(r.handleConfig(cmd.Args))
 	case "DISCARD":
 		return wrap(EncodeError("ERR DISCARD without MULTI"), nil)
 	case "ECHO":
