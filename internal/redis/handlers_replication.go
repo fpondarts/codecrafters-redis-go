@@ -32,5 +32,5 @@ func (r *Redis) handlePsync(connID uint64) ([]byte, error) {
 }
 
 func (r *Redis) handleWait() ([]byte, error) {
-	return EncodeInteger(0), nil
+	return EncodeInteger(int64(len(r.replicaConns))), nil
 }
