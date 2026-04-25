@@ -207,7 +207,7 @@ func (r *Redis) dispatch(connID uint64, cmd Command) (Response, error) {
 	case "PSYNC":
 		return wrap(r.handlePsync(connID))
 	case "REPLCONF":
-		data, err := r.handleReplconf(cmd.Args)
+		data, err := r.handleReplconf(connID, cmd.Args)
 		isGetAck := len(cmd.Args) > 0 && strings.EqualFold(cmd.Args[0], "GETACK")
 		return Response{Data: data, SendToMaster: isGetAck}, err
 	case "RPUSH":

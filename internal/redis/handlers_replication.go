@@ -1,14 +1,32 @@
 package redis
 
 import (
+	"log"
 	"strconv"
 	"strings"
 	"time"
 )
 
-func (r *Redis) handleReplconf(args []string) ([]byte, error) {
-	if len(args) > 0 && strings.ToUpper(args[0]) == "GETACK" {
+func (r *Redis) handleReplconf(connID uint64, args []string) ([]byte, error) {
+	if len(args) < 1 {
+		return EncodeSimpleString("OK"), nil
+	}
+	switch strings.ToUpper(args[0]) {
+	case "GETACK":
 		return EncodeArray([]string{"REPLCONF", "ACK", strconv.FormatUint(r.processedBytes.Load(), 10)}), nil
+	case "ACK":
+		if len(args) >= 2 {
+			if offset, err := strconv.ParseUint(args[1], 10, 64); err == nil {
+				r.replicasMu.RLock()
+				state, ok := r.replicas[connID]
+				r.replicasMu.RUnlock()
+				if ok {
+					state.ackedOffset.Store(offset)
+					log.Printf("replica connID=%d acked offset=%d", connID, offset)
+				}
+			}
+		}
+		return nil, nil // no response sent back to replica
 	}
 	return EncodeSimpleString("OK"), nil
 }
@@ -28,8 +46,6 @@ func (r *Redis) handlePsync(connID uint64) ([]byte, error) {
 
 		combined := append(fullresync, rdb...)
 		conn.Write(combined)
-
-		go r.listenReplicaACKs(connID)
 	}
 	return []byte{}, nil
 }
@@ -49,6 +65,7 @@ func (r *Redis) handleWait(args []string) (Response, error) {
 
 	offset := r.propagatedOffset.Load()
 
+	log.Println("Waiting for: ", numReplicas, " replicas to have acked: ", offset, " bytes", numReplicas, offset)
 	// No writes propagated yet — all replicas are trivially in sync.
 	if offset == 0 {
 		r.replicasMu.RLock()

@@ -114,31 +114,6 @@ func (r *Redis) propagateToReplicas(buf []byte) {
 	r.propagatedOffset.Add(uint64(len(buf)))
 }
 
-func (r *Redis) listenReplicaACKs(connID uint64) {
-	r.replicasMu.RLock()
-	state, ok := r.replicas[connID]
-	r.replicasMu.RUnlock()
-	if !ok {
-		return
-	}
-	br := bufio.NewReader(state.conn)
-	for {
-		el, err := ReadRESP(br)
-		if err != nil {
-			return
-		}
-		cmd, err := ParseCommand(el)
-		if err != nil || cmd.Name != "REPLCONF" || len(cmd.Args) < 2 {
-			continue
-		}
-		if strings.EqualFold(cmd.Args[0], "ACK") {
-			offset, err := strconv.ParseUint(cmd.Args[1], 10, 64)
-			if err == nil {
-				state.ackedOffset.Store(offset)
-			}
-		}
-	}
-}
 
 // readRDB drains one RDB transfer from r. The wire format is $<len>\r\n<bytes>
 // with no trailing CRLF — distinct from a RESP bulk string.
