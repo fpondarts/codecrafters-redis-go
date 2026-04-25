@@ -220,6 +220,8 @@ func (r *Redis) dispatch(connID uint64, cmd Command) (Response, error) {
 		return r.handleType(cmd.Args)
 	case "UNWATCH":
 		return wrap(r.handleUnwatch(connID))
+	case "WAIT":
+		return wrap(r.handleWait())
 	case "WATCH":
 		return wrap(r.handleWatch(connID, cmd.Args))
 	case "XADD":

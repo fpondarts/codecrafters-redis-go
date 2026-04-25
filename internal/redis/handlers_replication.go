@@ -30,3 +30,7 @@ func (r *Redis) handlePsync(connID uint64) ([]byte, error) {
 	}
 	return []byte{}, nil
 }
+
+func (r *Redis) handleWait() ([]byte, error) {
+	return EncodeInteger(0), nil
+}
