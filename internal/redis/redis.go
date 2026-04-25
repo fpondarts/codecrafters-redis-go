@@ -57,31 +57,33 @@ type RedisConfig struct {
 }
 
 type Redis struct {
-	storage       *Storage
-	transactions  map[uint64]transaction // connID -> queued commands (key present = in MULTI)
-	waitersBLPOP  map[string][]*waiter   // key -> FIFO list of blocked clients
-	waitersXREAD  map[string][]*waiter
-	config        RedisConfig
-	replicationID    string              // 40-char hex, generated once at startup
-	connMap          map[uint64]net.Conn
-	connMapMu        sync.RWMutex
-	replicaConns     map[uint64]net.Conn
-	replicaConnsMu   sync.RWMutex
-	masterConn       *net.TCPConn
-	masterReader     *bufio.Reader
+	storage        *Storage
+	transactions   map[uint64]transaction // connID -> queued commands (key present = in MULTI)
+	waitersBLPOP   map[string][]*waiter   // key -> FIFO list of blocked clients
+	waitersXREAD   map[string][]*waiter
+	config         RedisConfig
+	replicationID  string // 40-char hex, generated once at startup
+	connMap        map[uint64]net.Conn
+	connMapMu      sync.RWMutex
+	replicaConns   map[uint64]net.Conn
+	replicaConnsMu sync.RWMutex
+	masterConn     *net.TCPConn
+	masterReader   *bufio.Reader
+	processedBytes uint64
 }
 
 func NewRedis(config RedisConfig) *Redis {
 	r := &Redis{
-		storage:       NewStorage(),
-		transactions:  make(map[uint64]transaction),
-		waitersBLPOP:  make(map[string][]*waiter),
-		waitersXREAD:  make(map[string][]*waiter),
-		config:        config,
-		replicationID: generateReplID(),
-		connMap:       make(map[uint64]net.Conn),
-		replicaConns:  make(map[uint64]net.Conn),
-		masterConn:    nil,
+		storage:        NewStorage(),
+		transactions:   make(map[uint64]transaction),
+		waitersBLPOP:   make(map[string][]*waiter),
+		waitersXREAD:   make(map[string][]*waiter),
+		config:         config,
+		replicationID:  generateReplID(),
+		connMap:        make(map[uint64]net.Conn),
+		replicaConns:   make(map[uint64]net.Conn),
+		masterConn:     nil,
+		processedBytes: 0,
 	}
 
 	if config.Master != nil {
@@ -89,7 +91,6 @@ func NewRedis(config RedisConfig) *Redis {
 		if err != nil {
 			return nil
 		}
-
 		r.masterConn = conn
 	}
 
@@ -134,6 +135,9 @@ func (r *Redis) isReplica() bool {
 // signals an unrecoverable internal failure.
 func (r *Redis) Handle(connID uint64, buf []byte) (Response, error) {
 	el, _, err := ParseRESP(buf)
+	defer func() {
+		r.processedBytes += uint64(len(buf))
+	}()
 	if err != nil {
 		log.Printf("RESP parse error: %v", err)
 		return Response{Data: EncodeError("ERR Protocol error: " + err.Error())}, nil
