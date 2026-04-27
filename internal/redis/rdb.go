@@ -43,7 +43,10 @@ func readDbSubsection(buf *bufio.Reader, s *Storage) error {
 		default:
 			{
 				v := readKeyValuePair(buf)
-				value := v.value.(string)
+				value, ok := v.value.(string)
+				if !ok {
+					continue
+				}
 				s.Set(v.key, value, v.expirationTime)
 			}
 		}
