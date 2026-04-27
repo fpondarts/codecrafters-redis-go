@@ -18,22 +18,25 @@ type dbValue struct {
 	expirationTime time.Time
 }
 
-func readDbSubsection(buf *bufio.Reader, s *Storage) {
+func readDbSubsection(buf *bufio.Reader, s *Storage) error {
 	selector, _ := buf.Peek(1)
 
 	if selector[0] != 0xFE {
-		return
+		return nil
 	}
 	buf.Discard(2) // READ DB Number
 
 	for {
-		b, _ := buf.Peek(1)
+		b, err := buf.Peek(1)
+		if err != nil {
+			return err
+		}
 
 		switch b[0] {
 		case 0xFE:
 			{
 				buf.Discard(1)
-				return
+				return nil
 			}
 		case 0xFB:
 			readDBHashSection(buf)
