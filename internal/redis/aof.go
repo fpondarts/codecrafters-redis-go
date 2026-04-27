@@ -12,17 +12,17 @@ func (r *Redis) initAof() error {
 	}
 
 	dirPath := filepath.Join(r.config.Dir, r.config.AppendDirName)
-	err := os.Mkdir(dirPath, 0o755)
-
-	if !os.IsExist(err) {
+	if err := os.Mkdir(dirPath, 0o755); err != nil && !os.IsExist(err) {
 		return err
 	}
 
-	file, err := os.Create(filepath.Join(dirPath, r.config.AppendFileName, ".1.incr.aof"))
+	filePath := filepath.Join(dirPath, r.config.AppendFileName+".1.incr.aof")
+	file, err := os.Create(filePath)
 	if err != nil {
-		log.Fatalf("%v", err)
+		return err
 	}
+	defer file.Close()
 
-	log.Printf("FILE: %s", file.Name())
-	return err
+	log.Printf("AOF file: %s", file.Name())
+	return nil
 }
