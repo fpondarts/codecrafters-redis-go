@@ -52,10 +52,14 @@ type MasterNode struct {
 	Port int
 }
 type RedisConfig struct {
-	Master     *MasterNode
-	Port       int
-	Dir        string
-	DbFileName string
+	Master        *MasterNode
+	Port          int
+	Dir           string
+	DbFileName    string
+	AppendOnly    string // "yes" or "no"
+	AppendDirName string
+	AppendFileName string
+	AppendFsync   string // "everysec", "always", or "no"
 }
 
 type Redis struct {

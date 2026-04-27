@@ -190,11 +190,37 @@ func parseRdbArg() (dir, dbfilename string) {
 	return dir, dbfilename
 }
 
+func parseAppendArg() (appendOnly, appendDirName, appendFileName, appendFsync string) {
+	if i := slices.Index(os.Args, "--appendonly"); i != -1 {
+		appendOnly = os.Args[i+1]
+	}
+	if i := slices.Index(os.Args, "--appenddirname"); i != -1 {
+		appendDirName = os.Args[i+1]
+	}
+	if i := slices.Index(os.Args, "--appendfilename"); i != -1 {
+		appendFileName = os.Args[i+1]
+	}
+	if i := slices.Index(os.Args, "--appendfsync"); i != -1 {
+		appendFsync = os.Args[i+1]
+	}
+	return
+}
+
 func main() {
 	port := parsePortArg()
 	masterNode := parseReplicaArg()
 	dir, dbfilename := parseRdbArg()
-	redisConfig := redis.RedisConfig{Master: masterNode, Port: port, Dir: dir, DbFileName: dbfilename}
+	appendOnly, appendDirName, appendFileName, appendFsync := parseAppendArg()
+	redisConfig := redis.RedisConfig{
+		Master:         masterNode,
+		Port:           port,
+		Dir:            dir,
+		DbFileName:     dbfilename,
+		AppendOnly:     appendOnly,
+		AppendDirName:  appendDirName,
+		AppendFileName: appendFileName,
+		AppendFsync:    appendFsync,
+	}
 	fmt.Println("Logs from your program will appear here!")
 	r := redis.NewRedis(redisConfig)
 
