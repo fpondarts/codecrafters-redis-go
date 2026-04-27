@@ -160,6 +160,9 @@ func (r *Redis) Handle(connID uint64, buf []byte) (Response, error) {
 
 	if isWriteCommand(cmd.Name) {
 		r.propagateToReplicas(buf)
+		if err := r.writeCommandToAof(buf); err != nil {
+			log.Printf("AOF write error: %v", err)
+		}
 	}
 	if tx, inTx := r.transactions[connID]; inTx {
 		switch cmd.Name {
