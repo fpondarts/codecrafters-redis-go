@@ -52,14 +52,14 @@ type MasterNode struct {
 	Port int
 }
 type RedisConfig struct {
-	Master        *MasterNode
-	Port          int
-	Dir           string
-	DbFileName    string
-	AppendOnly    string // "yes" or "no"
-	AppendDirName string
+	Master         *MasterNode
+	Port           int
+	Dir            string
+	DbFileName     string
+	AppendOnly     string // "yes" or "no"
+	AppendDirName  string
 	AppendFileName string
-	AppendFsync   string // "everysec", "always", or "no"
+	AppendFsync    string // "everysec", "always", or "no"
 }
 
 type Redis struct {
@@ -104,6 +104,7 @@ func NewRedis(config RedisConfig) *Redis {
 		r.storage = NewStorage()
 	}
 
+	r.initAof()
 	go r.replicaMainLoop()
 	return r
 }

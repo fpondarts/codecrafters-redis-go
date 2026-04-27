@@ -183,6 +183,8 @@ func parseReplicaArg() *redis.MasterNode {
 func parseRdbArg() (dir, dbfilename string) {
 	if i := slices.Index(os.Args, "--dir"); i != -1 {
 		dir = os.Args[i+1]
+	} else {
+		dir, _ = os.Getwd()
 	}
 	if i := slices.Index(os.Args, "--dbfilename"); i != -1 {
 		dbfilename = os.Args[i+1]
