@@ -17,6 +17,6 @@ func (r *Redis) initAof() error {
 		return err
 	}
 
-	_, err = os.OpenFile(filepath.Join(dirPath, r.config.AppendFileName, ".1.incr.aof"), os.O_CREATE|os.O_RDWR, 0o755)
+	_, err = os.Create(filepath.Join(dirPath, r.config.AppendFileName, ".1.incr.aof"))
 	return err
 }
