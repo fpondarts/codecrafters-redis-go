@@ -1,15 +1,34 @@
 package redis
 
-import "strings"
+import (
+	"fmt"
+	"os"
+	"strings"
+)
+
+func (r *Redis) getConfigValue(name string) (string, error) {
+	switch name {
+	case "appenddirname":
+		return os.Getwd()
+	case "appendfilename":
+		return "appendonly.aof", nil
+	case "appendfsync":
+		return "everysec", nil
+	case "appendonly":
+		return "no", nil
+	case "dir":
+		return r.config.Dir, nil
+	case "dbfilename":
+		return r.config.DbFileName, nil
+	default:
+		return "", fmt.Errorf("config not found")
+	}
+}
 
 func (r *Redis) handleConfig(args []string) ([]byte, error) {
-	if strings.ToLower(args[1]) == "dir" {
-		return EncodeArray([]string{"dir", r.config.Dir}), nil
+	value, err := r.getConfigValue(strings.ToLower(args[1]))
+	if err != nil {
+		return EncodeNullArray(), nil
 	}
-
-	if strings.ToLower(args[1]) == "dbfilename" {
-		return EncodeArray([]string{"dbfilename", r.config.DbFileName}), nil
-	}
-
-	return EncodeNullArray(), nil
+	return EncodeArray([]string{strings.ToLower(args[1]), value}), nil
 }
