@@ -17,7 +17,7 @@ func (r *Redis) getSeqFilePath(seq string) string {
 }
 
 func (r *Redis) getSeqFileName(seq string) string {
-	return r.config.AppendFileName + "." + "seq" + seq + ".incr.aof"
+	return r.config.AppendFileName + "." + seq + ".incr.aof"
 }
 
 func (r *Redis) getManifestFilePath() string {
