@@ -101,6 +101,7 @@ func readEncodedLength(buf *bufio.Reader) (uint64, error) {
 	lenType := b[0] >> 6
 
 	if lenType == 0x00 {
+		buf.Discard(1)
 		l := uint8(b[0] & 0x3f)
 		return uint64(l), nil
 	}
