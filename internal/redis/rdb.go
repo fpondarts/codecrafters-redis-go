@@ -34,10 +34,10 @@ func readDbSubsection(buf *bufio.Reader, s *Storage) error {
 
 		switch b[0] {
 		case 0xFE:
-			{
-				buf.Discard(1)
-				return nil
-			}
+			buf.Discard(1)
+			return nil
+		case 0xFF:
+			return nil
 		case 0xFB:
 			readDBHashSection(buf)
 		default:
@@ -72,7 +72,7 @@ func readKeyValuePair(buf *bufio.Reader) dbValue {
 		timeBuf := make([]byte, 8)
 		io.ReadFull(buf, timeBuf)
 		ms := binary.LittleEndian.Uint64(timeBuf)
-		expirationTime = time.Unix(0, int64(ms))
+		expirationTime = time.UnixMilli(int64(ms))
 	}
 
 	// Expiration in seconds
@@ -175,11 +175,11 @@ func (r *Redis) loadRdb() error {
 
 	filePath := filepath.Join(r.config.Dir, r.config.DbFileName)
 	file, err := os.Open(filePath)
-	buf := bufio.NewReader(file)
-
 	if err != nil {
 		return fmt.Errorf("non existing rdb file")
 	}
+	defer file.Close()
+	buf := bufio.NewReader(file)
 
 	for {
 		_, err := buf.ReadString(0xFE)
