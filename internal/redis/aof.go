@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 )
@@ -17,6 +18,11 @@ func (r *Redis) initAof() error {
 		return err
 	}
 
-	_, err = os.Create(filepath.Join(dirPath, r.config.AppendFileName, ".1.incr.aof"))
+	file, err := os.Create(filepath.Join(dirPath, r.config.AppendFileName, ".1.incr.aof"))
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	log.Printf("FILE: %s", file.Name())
 	return err
 }
