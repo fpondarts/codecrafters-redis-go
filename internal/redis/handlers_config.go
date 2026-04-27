@@ -9,7 +9,7 @@ import (
 func (r *Redis) getConfigValue(name string) (string, error) {
 	switch name {
 	case "appenddirname":
-		return os.Getwd()
+		return "appendonlydir", nil
 	case "appendfilename":
 		return "appendonly.aof", nil
 	case "appendfsync":
@@ -17,7 +17,12 @@ func (r *Redis) getConfigValue(name string) (string, error) {
 	case "appendonly":
 		return "no", nil
 	case "dir":
-		return r.config.Dir, nil
+		{
+			if r.config.Dir == "" {
+				return os.Getwd()
+			}
+			return r.config.Dir, nil
+		}
 	case "dbfilename":
 		return r.config.DbFileName, nil
 	default:
