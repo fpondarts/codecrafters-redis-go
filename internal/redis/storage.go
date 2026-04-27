@@ -58,6 +58,17 @@ func (s *Storage) getRecord(key string, vtype valueType) (record, bool, error) {
 	return r, true, nil
 }
 
+func (s *Storage) Keys() ([]string, error) {
+	keys := make([]string, 0, len(s.storage))
+
+	for k, v := range s.storage {
+		if v.expiration.IsZero() || v.expiration.After(time.Now()) {
+			keys = append(keys, k)
+		}
+	}
+	return keys, nil
+}
+
 func (s *Storage) Set(key, val string, expiration time.Time) error {
 	if _, _, err := s.getRecord(key, stringType); err != nil {
 		return err

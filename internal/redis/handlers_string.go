@@ -66,3 +66,13 @@ func (r *Redis) handleIncr(args []string) ([]byte, error) {
 	r.invalidateWatchers(args[0])
 	return EncodeInteger(int64(incr)), nil
 }
+
+func (r *Redis) handleKeys(args []string) ([]byte, error) {
+	if len(args) < 1 {
+		return EncodeError("ERR wrong number of arguments for 'keys' command"), nil
+	}
+
+	keys, _ := r.storage.Keys()
+
+	return EncodeArray(keys), nil
+}
