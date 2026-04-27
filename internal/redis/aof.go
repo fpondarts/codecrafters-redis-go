@@ -35,13 +35,15 @@ func (r *Redis) initAof() error {
 	}
 
 	seqFilePath := r.getSeqFilePath("1")
-	file, err := os.Create(seqFilePath)
+	file, err := os.OpenFile(seqFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
-	os.WriteFile(r.getManifestFilePath(), []byte("file "+r.getSeqFileName("1")+" seq 1 type i"), 0o644)
+	if err := os.WriteFile(r.getManifestFilePath(), []byte("file "+r.getSeqFileName("1")+" seq 1 type i"), 0o644); err != nil {
+		return err
+	}
 	log.Printf("AOF file: %s", file.Name())
 	return nil
 }
