@@ -77,6 +77,7 @@ type Redis struct {
 	masterConn       *net.TCPConn
 	masterReader     *bufio.Reader
 	processedBytes   atomic.Uint64 // bytes received from master (replica side)
+	aofLoading       bool          // true while replaying AOF — skips re-writing commands
 }
 
 func NewRedis(config RedisConfig) *Redis {
