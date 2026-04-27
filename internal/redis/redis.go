@@ -96,6 +96,10 @@ func NewRedis(config RedisConfig) *Redis {
 		r.masterConn = conn
 	}
 
+	if err := r.loadRdb(); err != nil {
+		r.storage = NewStorage()
+	}
+
 	go r.replicaMainLoop()
 	return r
 }
