@@ -145,14 +145,9 @@ func (r *Redis) isReplica() bool {
 // message, dispatches to the correct handler, and returns a Response.
 // All Redis-level errors are encoded into Response.Data — a non-nil Go error
 // signals an unrecoverable internal failure.
-func (r *Redis) Handle(connID uint64, buf []byte) (Response, error) {
-	el, _, err := ParseRESP(buf)
-	defer r.processedBytes.Add(uint64(len(buf)))
-	if err != nil {
-		log.Printf("RESP parse error: %v", err)
-		return Response{Data: EncodeError("ERR Protocol error: " + err.Error())}, nil
-	}
-	cmd, err := ParseCommand(el)
+func (r *Redis) Handle(connID uint64, msg RESPMessage) (Response, error) {
+	defer r.processedBytes.Add(uint64(len(msg.Raw)))
+	cmd, err := ParseCommand(msg.Element)
 	if err != nil {
 		log.Printf("command parse error: %v", err)
 		return Response{Data: EncodeError("ERR " + err.Error())}, nil
@@ -160,8 +155,8 @@ func (r *Redis) Handle(connID uint64, buf []byte) (Response, error) {
 	log.Printf("dispatching command %q args=%v", cmd.Name, cmd.Args)
 
 	if isWriteCommand(cmd.Name) {
-		r.propagateToReplicas(buf)
-		if err := r.writeCommandToAof(buf); err != nil {
+		r.propagateToReplicas(msg.Raw)
+		if err := r.writeCommandToAof(msg.Raw); err != nil {
 			log.Printf("AOF write error: %v", err)
 		}
 	}

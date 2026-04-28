@@ -99,7 +99,7 @@ func (r *Redis) loadAof() error {
 			}
 			return fmt.Errorf("AOF parse error at command %d: %w", count, err)
 		}
-		r.Handle(0, EncodeElement(el))
+		r.Handle(0, NewRESPMessage(el))
 		count++
 	}
 

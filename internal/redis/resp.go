@@ -3,7 +3,6 @@ package redis
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"io"
 	"strconv"
@@ -145,6 +144,18 @@ func EncodeElement(el RESPElement) []byte {
 	}
 }
 
+// RESPMessage pairs a parsed element with its wire encoding so callers that
+// have already parsed a frame don't need to re-encode or re-parse it.
+type RESPMessage struct {
+	Raw     []byte
+	Element RESPElement
+}
+
+// NewRESPMessage encodes el once and returns a message holding both representations.
+func NewRESPMessage(el RESPElement) RESPMessage {
+	return RESPMessage{Raw: EncodeElement(el), Element: el}
+}
+
 // ReadRESP reads from r until exactly one complete RESP message has arrived.
 // It wraps r in a bufio.Reader when needed, so it is safe to call repeatedly
 // on the same connection — unread bytes stay buffered for the next call.
@@ -236,80 +247,3 @@ func readCRLFLine(r *bufio.Reader) (string, error) {
 	return strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r"), nil
 }
 
-// ParseRESP parses a RESP-encoded buffer and returns the parsed element and
-// the number of bytes consumed.
-func ParseRESP(buf []byte) (RESPElement, int, error) {
-	if len(buf) == 0 {
-		return nil, 0, fmt.Errorf("empty buffer")
-	}
-
-	switch buf[0] {
-	case '+':
-		return parseInline(buf, func(s string) RESPElement { return RESPSimpleString{Value: s} })
-	case '-':
-		return parseInline(buf, func(s string) RESPElement { return RESPError{Value: s} })
-	case ':':
-		return parseInline(buf, func(s string) RESPElement {
-			n, _ := strconv.ParseInt(s, 10, 64)
-			return RESPInteger{Value: n}
-		})
-	case '$':
-		return parseBulkString(buf)
-	case '*':
-		return parseArray(buf)
-	default:
-		return nil, 0, fmt.Errorf("unknown RESP type: %q", buf[0])
-	}
-}
-
-func parseInline(buf []byte, build func(string) RESPElement) (RESPElement, int, error) {
-	end := bytes.Index(buf, []byte("\r\n"))
-	if end == -1 {
-		return nil, 0, fmt.Errorf("missing CRLF")
-	}
-	return build(string(buf[1:end])), end + 2, nil
-}
-
-func parseBulkString(buf []byte) (RESPElement, int, error) {
-	end := bytes.Index(buf, []byte("\r\n"))
-	if end == -1 {
-		return nil, 0, fmt.Errorf("missing CRLF")
-	}
-	length, err := strconv.Atoi(string(buf[1:end]))
-	if err != nil {
-		return nil, 0, fmt.Errorf("invalid bulk string length: %w", err)
-	}
-	if length == -1 {
-		return RESPBulkString{Null: true}, end + 2, nil
-	}
-	start := end + 2
-	if len(buf) < start+length+2 {
-		return nil, 0, fmt.Errorf("incomplete bulk string")
-	}
-	return RESPBulkString{Value: string(buf[start : start+length])}, start + length + 2, nil
-}
-
-func parseArray(buf []byte) (RESPElement, int, error) {
-	end := bytes.Index(buf, []byte("\r\n"))
-	if end == -1 {
-		return nil, 0, fmt.Errorf("missing CRLF")
-	}
-	count, err := strconv.Atoi(string(buf[1:end]))
-	if err != nil {
-		return nil, 0, fmt.Errorf("invalid array length: %w", err)
-	}
-	if count == -1 {
-		return RESPArray{Null: true}, end + 2, nil
-	}
-	offset := end + 2
-	elements := make([]RESPElement, 0, count)
-	for i := range count {
-		elem, n, err := ParseRESP(buf[offset:])
-		if err != nil {
-			return nil, 0, fmt.Errorf("parsing array element %d: %w", i, err)
-		}
-		elements = append(elements, elem)
-		offset += n
-	}
-	return RESPArray{Elements: elements}, offset, nil
-}

@@ -18,7 +18,7 @@ import (
 type Event struct {
 	ConnID uint64
 	Conn   net.Conn
-	Data   []byte
+	Data   redis.RESPMessage
 	Result chan error
 }
 
@@ -27,7 +27,7 @@ type TCPServer struct {
 	Clients     map[net.Conn]struct{}
 	ClientsMtx  sync.Mutex
 	EventQueue  chan Event
-	HandleFunc  func(connID uint64, buf []byte) (redis.Response, error)
+	HandleFunc  func(connID uint64, msg redis.RESPMessage) (redis.Response, error)
 	ConnectFunc func(connID uint64, conn net.Conn)
 	DisconnFunc func(connID uint64)
 	connCounter atomic.Uint64
@@ -56,10 +56,10 @@ func (server *TCPServer) HandleConnection(conn net.Conn) {
 		if err != nil {
 			return
 		}
-		buf := redis.EncodeElement(el)
-		log.Printf("received command from %s (id=%d): %q", conn.RemoteAddr(), connID, buf)
+		msg := redis.NewRESPMessage(el)
+		log.Printf("received command from %s (id=%d): %q", conn.RemoteAddr(), connID, msg.Raw)
 		errChan := make(chan error, 1)
-		server.EventQueue <- Event{ConnID: connID, Conn: conn, Data: buf, Result: errChan}
+		server.EventQueue <- Event{ConnID: connID, Conn: conn, Data: msg, Result: errChan}
 		if err := <-errChan; err != nil {
 			log.Printf("write error for %s: %v", conn.RemoteAddr(), err)
 			return
@@ -114,7 +114,7 @@ type ServerConfig struct {
 
 func NewTCPServer(
 	config ServerConfig,
-	handleFunc func(connID uint64, buf []byte) (redis.Response, error),
+	handleFunc func(connID uint64, msg redis.RESPMessage) (redis.Response, error),
 	connectFunc func(connID uint64, conn net.Conn),
 	disconnFunc func(connID uint64),
 ) (*TCPServer, error) {
